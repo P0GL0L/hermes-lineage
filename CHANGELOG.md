@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 — 2026-11-05
+
+From the first Desktop session on Hermes Agent v0.22.7 (macOS).
+
+- URLs end at a backslash, so an escaped quote in a shell command (`\"https://…\"`) no longer leaves a `\` on the source node.
+- XML namespace names (`http://www.w3.org/2000/svg`, xhtml, xlink, MathML) are no longer recorded as fetched pages; every SVG the agent writes names one.
+
 ## 0.1.1 — 2026-11-05
 
 Fixes from the first live run on Hermes Agent v0.22.7 (macOS).

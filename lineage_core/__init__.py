@@ -10,7 +10,7 @@ callback swallows its own errors, and the store never holds a secret on purpose.
 
 from __future__ import annotations
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 RECEIPT_SCHEMA = "lineage.receipt.v1"
 PLUGIN_ID = "lineage"
 

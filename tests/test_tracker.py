@@ -302,3 +302,10 @@ def test_review_fixes(plugin, ctx, workspace, session_factory):
     assert receipt_mod.write_sidecar(store, str(src)) is None
     assert not (workspace / "input.txt.receipt.json").exists()
     assert "pre_tool_call" not in plugin.HOOKS
+
+
+def test_find_urls_drops_escapes_and_xml_namespaces(plugin):
+    find_urls = _mod(plugin, "hashing").find_urls
+    cmd = 'python3 -c "print(\\"<svg xmlns=\\\\\\"http://www.w3.org/2000/svg\\\\\\">\\")" && curl \\"https://example.com/a\\"'
+    assert find_urls(cmd) == ["https://example.com/a"]
+    assert find_urls('<svg xmlns="http://www.w3.org/2000/svg"><a xlink:href="https://x.org/p"/></svg>') == ["https://x.org/p"]

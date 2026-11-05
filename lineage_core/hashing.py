@@ -84,8 +84,20 @@ def resolve_path(path: str, cwd: str | os.PathLike[str] | None) -> str:
         return str(p.absolute())
 
 
-_URL_RE = re.compile(r"https?://[^\s<>\"'`)\]}>,;]+")
+# A backslash ends a URL: in shell commands and code, quotes around a URL are
+# often escaped (\"http://…\"), and the escape is not part of the address.
+_URL_RE = re.compile(r"https?://[^\s<>\"'`)\]}>,;\\]+")
 _TRAILING_PUNCT = ".,;:!?)]}>'\""
+# XML namespace names look like URLs but are identifiers nobody fetches
+# (every SVG the agent writes names http://www.w3.org/2000/svg).
+_XML_NAMESPACES = frozenset({
+    "http://www.w3.org/2000/svg",
+    "http://www.w3.org/1999/xhtml",
+    "http://www.w3.org/1999/xlink",
+    "http://www.w3.org/XML/1998/namespace",
+    "http://www.w3.org/2000/xmlns",
+    "http://www.w3.org/1998/Math/MathML",
+})
 
 
 def find_urls(text: str, limit: int = 200) -> list[str]:
@@ -94,6 +106,8 @@ def find_urls(text: str, limit: int = 200) -> list[str]:
     out: list[str] = []
     for m in _URL_RE.finditer(text or ""):
         u = m.group(0).rstrip(_TRAILING_PUNCT)
+        if u.rstrip("/") in _XML_NAMESPACES:
+            continue
         if u and u not in seen:
             seen.add(u)
             out.append(u)
