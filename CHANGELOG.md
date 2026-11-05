@@ -36,7 +36,7 @@ From the catalog review (thanks, Teknium) and a second independent review of the
 - `redis://:password@` (empty user) is masked; a command's `> /elsewhere/out.md` output is not an input; a blocked command (no positive `exit_code`) records nothing.
 
 **Performance**
-- Each tool call's writes go into one SQLite transaction; inferred links per artifact are capped (`turn_max_inferred_sources`, 25 newest). A turn with 400 reads and a command writing 50 files went from 21,753 edges and 8.7 s inside the hook to 1,403 edges and 0.3 s (measured in this container).
+- Each tool call's writes go into one SQLite transaction; inferred links per artifact are capped (`turn_max_inferred_sources`, 25 newest). A turn with 400 reads and a command writing 50 files went from 21,753 edges and 8.7 s inside the hook to 1,403 edges and about 0.4 s (measured in this container).
 - Dashboard API routes are plain functions, so FastAPI runs them in its threadpool; *Verify + refetch URLs* no longer blocks the Hermes web server's event loop.
 
 ## 0.1.4 — 2026-11-05
