@@ -762,28 +762,39 @@ class Store:
             candidates = [r["id"] for r in self._conn.execute(
                 "SELECT id FROM sessions WHERE COALESCE(ended_at, started_at) < ?", (before,)
             )]
-            pruned = set(candidates)
-            marks = ",".join("?" for _ in pruned) or "''"
-            kept: set[str] = set()
+            # Fixed point: a session that made an artifact still in use is kept, and then whatever *it*
+            # uses is in use too (a source it shares with an even older session stays).
             keep_sessions: set[str] = set()
-            for sid in candidates:
-                for r in self._conn.execute("SELECT id FROM nodes WHERE session_id=? AND kind NOT IN ('agent','turn')", (sid,)).fetchall():
-                    nid = r["id"]
-                    heir = self._conn.execute(
-                        "SELECT o.session_id AS sid FROM edges e JOIN nodes o ON o.id = CASE WHEN e.src=? THEN e.dst ELSE e.src END"
-                        " WHERE (e.src=? OR e.dst=?) AND o.session_id IS NOT NULL AND o.session_id NOT IN (" + marks + ")"
-                        " ORDER BY o.updated_at DESC LIMIT 1",
-                        (nid, nid, nid, *pruned),
-                    ).fetchone()
-                    if heir is None:
-                        continue
-                    kept.add(nid)
-                    produced = self._conn.execute("SELECT produced FROM nodes WHERE id=?", (nid,)).fetchone()["produced"]
-                    if produced:
-                        keep_sessions.add(sid)  # an artifact stays credited to the session that made it
-                    else:
-                        # a page, query or read file has no author to protect: the newest user adopts it
-                        self._conn.execute("UPDATE nodes SET session_id=? WHERE id=?", (heir["sid"], nid))
+            while True:
+                pruned = set(candidates) - keep_sessions
+                marks = ",".join("?" for _ in pruned) or "''"
+                kept: set[str] = set()
+                adopt: dict[str, str] = {}
+                grew = False
+                for sid in sorted(pruned):
+                    rows = self._conn.execute(
+                        "SELECT id, produced FROM nodes WHERE session_id=? AND kind NOT IN ('agent','turn')", (sid,)
+                    ).fetchall()
+                    for r in rows:
+                        nid = r["id"]
+                        heir = self._conn.execute(
+                            "SELECT o.session_id AS sid FROM edges e JOIN nodes o ON o.id = CASE WHEN e.src=? THEN e.dst ELSE e.src END"
+                            " WHERE (e.src=? OR e.dst=?) AND o.session_id IS NOT NULL AND o.session_id NOT IN (" + marks + ")"
+                            " ORDER BY o.updated_at DESC LIMIT 1",
+                            (nid, nid, nid, *pruned),
+                        ).fetchone()
+                        if heir is None:
+                            continue
+                        kept.add(nid)
+                        if r["produced"]:
+                            keep_sessions.add(sid)  # an artifact stays credited to the session that made it
+                            grew = True
+                        else:
+                            adopt[nid] = heir["sid"]  # a page/query/read file: the newest user adopts it
+                if not grew:
+                    break
+            for nid, heir_sid in adopt.items():
+                self._conn.execute("UPDATE nodes SET session_id=? WHERE id=?", (heir_sid, nid))
             removed_nodes = 0
             for sid in candidates:
                 if sid in keep_sessions:
@@ -802,7 +813,7 @@ class Store:
                 self._conn.execute("VACUUM")
         except sqlite3.DatabaseError:
             pass
-        return {"sessions": len(pruned - keep_sessions), "nodes": removed_nodes, "kept_shared": len(kept),
+        return {"sessions": len(set(candidates) - keep_sessions), "nodes": removed_nodes, "kept_shared": len(kept),
                 "sessions_kept_for_shared_nodes": len(keep_sessions)}
 
     # ----------------------------------------------------------------- helpers

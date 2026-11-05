@@ -69,6 +69,7 @@ _URL_CRED_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)([^/\s:@]*):([^/\s@]+)@"
 _SECRET_FRAGMENTS = ("token", "secret", "password", "passwd", "apikey", "signature", "credential",
                      "accesskey", "privatekey", "sessionid", "sessiontoken", "clientsecret")
 # Short words that are secrets only as a whole word (digits ignored): api_key, x-api-key, key2, sig, auth.
+_PAGINATION = ("pagetoken", "nexttoken", "continuationtoken", "cursortoken", "pagingtoken", "synctoken")
 _SECRET_WORDS = frozenset({"key", "sig", "pwd", "pass", "auth", "jwt", "otp", "hmac", "sid", "session"})
 _QUERY_PARAM_RE = re.compile(r"([?&])([^=&#\s\"'`]+)=([^&#\s\"'`]*)")
 
@@ -83,6 +84,8 @@ def is_secret_param_name(name: str) -> bool:
     ``author``, ``keyword``, ``zipcode``, ``country_code``, ``promo_code`` → False."""
     words = [w.rstrip("0123456789") for w in _name_words(name)]
     joined = "".join(words)
+    if any(f in joined for f in _PAGINATION):
+        return False  # page_token, nextPageToken, continuation_token: a cursor, not a credential
     if any(f in joined for f in _SECRET_FRAGMENTS):
         return True
     if any(w in _SECRET_WORDS for w in words):

@@ -563,7 +563,9 @@ class Tracker:
     _REDIRECT_RE = re.compile(r"(?:^|[\s;&|(])(?:\d?>>?|&>>?)\s*([^\s;&|<>()]+)")
     _TEE_RE = re.compile(r"\btee\s+(?:-[a-z]+\s+)*([^\s;&|<>()]+)")
     _OUTPUT_LONG_RE = re.compile(r"\s--(?:output|out|output-file|outfile)(?:\s+|=)([^\s;&|<>()]+)")
-    _OUTPUT_SHORT_RE = re.compile(r"\s-[oO](?:\s+|=)?([^\s;&|<>()-][^\s;&|<>()]*)")
+    # -o FILE, -oFILE, -o=FILE, and a flag cluster ending in o: curl -fsSLo FILE
+    _OUTPUT_SHORT_RE = re.compile(r"\s-(?:[A-Za-z]*[oO](?:\s+|=)|[oO])([^\s;&|<>()-][^\s;&|<>()]*)")
+    _WRAPPERS = frozenset({"sudo", "env", "time", "nice", "nohup", "command", "exec", "xargs", "timeout", "doas"})
     # Programs where -o / -O names the output file. Elsewhere it means something else
     # (unzip -o overwrite, grep -o only-matching, ssh -o option, ls -o long listing).
     _OUTPUT_SHORT_PROGRAMS = frozenset({
@@ -580,6 +582,10 @@ class Tracker:
             matches.extend(m.group(1) for m in rx.finditer(command or ""))
         for segment in re.split(r"[;&|]+", command or ""):
             words = segment.split()
+            # skip wrappers and VAR=value prefixes: sudo curl, env X=1 curl, timeout 30 curl
+            while words and (os.path.basename(words[0]) in self._WRAPPERS or "=" in words[0]
+                             or words[0].startswith("-") or words[0].isdigit()):
+                words = words[1:]
             if words and os.path.basename(words[0]) in self._OUTPUT_SHORT_PROGRAMS:
                 matches.extend(m.group(1) for m in self._OUTPUT_SHORT_RE.finditer(" " + segment))
         for raw in matches:
@@ -605,25 +611,21 @@ class Tracker:
     def _command_ran(cls, result_text: str, status: str = "error") -> bool:
         """Whether a shell call that reported an error actually ran (and so may have written files).
 
-        Failed, timed out (``exit_code`` -1 from an execute_code cell) and interrupted commands ran. Hermes
-        marks the ones that never did: a ``blocked`` hook status, or a result whose ``status`` is
-        blocked / pending_approval / disabled, an approval ``user_summary``, or a BLOCKED message."""
+        Needs positive evidence, from the shape of Hermes's own result: an exit code from the process
+        (anything but -1, Hermes's "nothing ran" code), or a cell that timed out or was interrupted.
+        A rejection (blocked, pending approval, the pre-exec guard, argument errors) ran nothing."""
         if status in cls._NOT_RUN:
             return False
-        text = (result_text or "").lstrip()
-        if text.upper().startswith(("BLOCKED", "DENIED")):
-            return False
         try:
-            data = json.loads(text) if text else None
+            data = json.loads(result_text) if result_text else None
         except Exception:
+            return False
+        if not isinstance(data, dict) or data.get("user_summary"):
+            return False
+        if str(data.get("status") or "").lower() in ("timeout", "interrupted"):
             return True
-        if isinstance(data, dict):
-            if str(data.get("status") or "").lower() in cls._NOT_RUN or data.get("user_summary"):
-                return False
-            err = str(data.get("error") or "")
-            if data.get("exit_code") == -1 and re.match(r"(?i)\s*(blocked|denied|invalid command|approval)", err):
-                return False
-        return True
+        code = data.get("exit_code")
+        return isinstance(code, int) and not isinstance(code, bool) and code != -1
 
     # ------------------------------------------------------- consumed inputs
     def _record_consumed(self, tool: str, args: dict, result_text: str, status: str, cwd: Optional[str],

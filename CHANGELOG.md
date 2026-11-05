@@ -42,6 +42,12 @@ From the catalog review (thanks, Teknium) and a second independent review of the
 - `-o` counts as an output only for programs where it means one (curl, gcc, go, pandoc, …), not `unzip -o` or `grep -o`.
 - Timed-out and interrupted commands (`exit_code` -1) ran and may have written files, so they are scanned; only what Hermes marks blocked, pending approval or disabled is skipped.
 
+**Fourth pass.** Four more (none high), fixed, with `tests/test_round4.py`:
+- A shell call counts as having run only on positive evidence — an exit code other than -1, or a timed-out/interrupted cell — so Hermes's guard and argument rejections record nothing.
+- `curl -fsSLo FILE` and `sudo`/`env`-wrapped commands are recognised as naming an output.
+- `prune` is a fixed point: a kept session's sources shared with an even older session stay.
+- `page_token`, `nextPageToken` and other pagination cursors are not masked, so paginated pages stay distinct URLs.
+
 **Performance**
 - Each tool call's writes go into one SQLite transaction; inferred links per artifact are capped (`turn_max_inferred_sources`, 25 newest). A turn with 400 reads and a command writing 50 files went from 21,753 edges and 8.7 s inside the hook to 1,403 edges and about 0.4 s (measured in this container).
 - Dashboard API routes are plain functions, so FastAPI runs them in its threadpool; *Verify + refetch URLs* no longer blocks the Hermes web server's event loop.
