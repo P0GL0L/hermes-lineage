@@ -1,6 +1,6 @@
 ## lineage — provenance receipts and a graph for everything the agent produces
 
-Adds `plugin-catalog/lineage.yaml` (community tier, `tools` category), pinned to `d9a2730` = tag `v0.1.0` of https://github.com/P0GL0L/hermes-lineage.
+Adds `plugin-catalog/lineage.yaml` (community tier, `tools` category), pinned to `9a5c2ba` = tag `v0.1.1` of https://github.com/P0GL0L/hermes-lineage.
 
 **What it does.** Every file Hermes writes gets a receipt — what it was made from (files read, pages fetched, searches run), by which tool call, model and agent, with SHA-256 hashes — and a Desktop page draws the graph from the file back to its sources. Links are labelled **observed** (Hermes reported it), **evidenced** (the artifact's own bytes name the source) or **inferred** (read earlier this turn / session, with confidence), never blended. `hermes lineage verify` reports fresh / stale / modified / missing; `hermes lineage check <file>.receipt.json` verifies a receipt with no database.
 

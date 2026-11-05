@@ -1,7 +1,6 @@
-# Copy to hermes-agent/plugin-catalog/lineage.yaml and open a PR. Replace `sha` with the 40-hex commit of the release tag.
 name: lineage
 repo: https://github.com/P0GL0L/hermes-lineage
-sha: d9a273080e984c83115375232992ff9d70fcf575
+sha: 9a5c2ba1c4def5298a81a5b9b8b6cd022ac600d6
 description: >-
   Provenance for everything the agent produces: every file Hermes writes gets a receipt (what it was made from — files read,
   pages fetched, searches run — by which tool call, model and agent, with SHA-256 hashes) and a Desktop page draws the graph
@@ -18,10 +17,10 @@ tier: community
 category: tools
 requires_hermes: ">=0.21.5"
 docs_url: https://github.com/P0GL0L/hermes-lineage#readme
-version: "0.1.0"
-image: https://raw.githubusercontent.com/P0GL0L/hermes-lineage/d9a273080e984c83115375232992ff9d70fcf575/docs/banner.png
+version: "0.1.1"
+image: https://raw.githubusercontent.com/P0GL0L/hermes-lineage/9a5c2ba1c4def5298a81a5b9b8b6cd022ac600d6/docs/banner.png
 screenshots:
-  - https://raw.githubusercontent.com/P0GL0L/hermes-lineage/d9a273080e984c83115375232992ff9d70fcf575/docs/graph.png
+  - https://raw.githubusercontent.com/P0GL0L/hermes-lineage/9a5c2ba1c4def5298a81a5b9b8b6cd022ac600d6/docs/graph.png
 readme: true
 platforms: []
 title: Lineage
