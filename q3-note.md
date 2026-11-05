@@ -1,0 +1,3 @@
+- Q3 revenue is 15, above Q1 (10) and Q2 (12) in revenue.csv (https://hermes-agent.nousresearch.com/docs/).
+- The three quarters in revenue.csv total 37 (Q1 10 + Q2 12 + Q3 15); see https://hermes-agent.nousresearch.com/docs/.
+- Q3 is the high quarter at 15 versus 10 and 12 earlier in revenue.csv, cited alongside https://hermes-agent.nousresearch.com/docs/ (Hermes Agent docs, Nous Research).

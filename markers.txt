@@ -1,0 +1,9 @@
+4 chat
+12 working
+34 graph
+49 url
+55 chart
+62 verify-fresh
+70 verify-stale
+78 receipt
+88 banner

@@ -1,0 +1,180 @@
+{
+  "schema": "lineage.receipt.v1",
+  "generated_at": "2026-11-05T03:04:17.373984Z",
+  "generator": {
+    "plugin": "lineage",
+    "version": "0.1.0"
+  },
+  "artifact": {
+    "path": "/Users/charlesbonetti/lineage-demo/q3-note.md",
+    "name": "q3-note.md",
+    "sha256": "d41d886bb02e68d5b4489b4ca716587b2db0553a10983b9cce3a5eab3281c894",
+    "size": 395,
+    "created_at": "2026-11-05T03:04:08.680517Z",
+    "last_written_at": "2026-11-05T03:04:16.692812Z",
+    "versions": [
+      {
+        "sha256": "d41d886bb02e68d5b4489b4ca716587b2db0553a10983b9cce3a5eab3281c894",
+        "size": 395,
+        "at": "2026-11-05T03:04:08.680605Z",
+        "tool_call_id": "call-99df4f06-afd1-48e1-b0fb-ba2d2528413f-4"
+      }
+    ],
+    "cited_in_final_reply": true
+  },
+  "produced_by": {
+    "tool": "write_file",
+    "tool_call_id": "call-99df4f06-afd1-48e1-b0fb-ba2d2528413f-4",
+    "basis": "observed",
+    "at": "2026-11-05T03:04:08.652827Z",
+    "duration_ms": 23,
+    "args": {
+      "path": "/Users/charlesbonetti/lineage-demo/q3-note.md",
+      "content": "- Q3 revenue is 15, above Q1 (10) and Q2 (12) in revenue.csv (https://hermes-agent.nousresearch.com/docs/).\n- The three quarters in revenue.csv total 37 (Q1 10 + Q2 12 + Q3 15); see https://hermes-agent.nousresearch.com/docs/.\n- Q3 is the high quarter at 15 versus 10 and 12 earlier in revenue.csv, cited alongside https://hermes-agent.nousresearch.com/docs/ (Hermes Agent docs, Nous Research).\n"
+    },
+    "status": "ok"
+  },
+  "agent": {
+    "session_id": "local-999b4013833c250219ffa212e6d6bb279917509b0c2eb7944aa88480016240d1",
+    "chain": [
+      {
+        "session_id": "local-999b4013833c250219ffa212e6d6bb279917509b0c2eb7944aa88480016240d1",
+        "role": "main",
+        "platform": "cli",
+        "model": "grok-4.7",
+        "goal": null
+      }
+    ]
+  },
+  "turn": {
+    "turn_id": "local-999b4013833c250219ffa212e6d6bb279917509b0c2eb7944aa88480016240d1:local-999b4013833c250219ffa212e6d6bb279917509b0c2eb7944aa88480016240d1:46e67bee",
+    "user_prompt_preview": "Read revenue.csv, fetch https://hermes-agent.nousresearch.com/docs/ with web_extract, then write q3-note.md with three bullets that cite the CSV figures and that URL.",
+    "user_prompt_sha256": "5b7e2ce6295701d686df1e6856e8d2b09041d73042464b89a33fc878ae1ef5fa",
+    "started_at": "2026-11-05T03:03:52.976549Z",
+    "ended_at": "2026-11-05T03:04:10.808906Z"
+  },
+  "models": [
+    {
+      "api_request_id": "local-999b4013833c250219ffa212e6d6bb279917509b0c2eb7944aa88480016240d1:local-999b4013833c250219ffa212e6d6bb279917509b0c2eb7944aa88480016240d1:46e67bee:api:3",
+      "model": "grok-4.7",
+      "provider": null,
+      "usage": {
+        "input_tokens": 27241,
+        "output_tokens": 472,
+        "cache_read_tokens": 1280,
+        "cache_write_tokens": 0,
+        "reasoning_tokens": 290,
+        "request_count": 1,
+        "prompt_tokens": 28521,
+        "total_tokens": 28993
+      },
+      "at": null
+    }
+  ],
+  "sources": [
+    {
+      "id": "file:/Users/charlesbonetti/lineage-demo/revenue.csv",
+      "kind": "file",
+      "locator": "/Users/charlesbonetti/lineage-demo/revenue.csv",
+      "sha256": "75e92e4b5ad8dbdee8b88bbc73ce516d6e576047f14c7f949adaf1e9a0cec0df",
+      "size": 34,
+      "basis": "evidenced",
+      "confidence": 0.9,
+      "reason": "path appears in artifact",
+      "first_seen": "2026-11-05T03:04:00.067074Z",
+      "sha256_of": "file bytes when read",
+      "produced_by_agent": false,
+      "read_by": {
+        "tool_call_id": "call-64b06b02-795b-437c-a72c-6bd7c42f9662-2",
+        "tool": "read_file",
+        "at": "2026-11-05T03:04:00.057957Z"
+      }
+    },
+    {
+      "id": "url:https://hermes-agent.nousresearch.com/docs",
+      "kind": "url",
+      "locator": "https://hermes-agent.nousresearch.com/docs",
+      "sha256": null,
+      "size": null,
+      "basis": "evidenced",
+      "confidence": 0.9,
+      "reason": "url appears in artifact",
+      "first_seen": "2026-11-05T03:04:01.049910Z",
+      "sha256_of": null,
+      "fetched_at": null,
+      "read_by": {
+        "tool_call_id": "call-64b06b02-795b-437c-a72c-6bd7c42f9662-3",
+        "tool": "terminal",
+        "at": "2026-11-05T03:04:00.072584Z"
+      }
+    }
+  ],
+  "parents": [],
+  "transformations": [
+    {
+      "tool_call_id": "call-f2957e7a-45a0-4a97-81c3-323cce098d61-1",
+      "tool": "web_extract",
+      "label": "web_extract: https://hermes-agent.nousresearch.com/docs/",
+      "status": "error",
+      "at": "2026-11-05T03:03:56.057658Z",
+      "duration_ms": 31,
+      "wrote_this": false
+    },
+    {
+      "tool_call_id": "call-f2957e7a-45a0-4a97-81c3-323cce098d61-0",
+      "tool": "search_files",
+      "label": "search_files",
+      "status": "ok",
+      "at": "2026-11-05T03:03:56.055758Z",
+      "duration_ms": 406,
+      "wrote_this": false
+    },
+    {
+      "tool_call_id": "call-64b06b02-795b-437c-a72c-6bd7c42f9662-2",
+      "tool": "read_file",
+      "label": "read_file: revenue.csv",
+      "status": "ok",
+      "at": "2026-11-05T03:04:00.057957Z",
+      "duration_ms": 8,
+      "wrote_this": false
+    },
+    {
+      "tool_call_id": "call-64b06b02-795b-437c-a72c-6bd7c42f9662-3",
+      "tool": "terminal",
+      "label": "terminal: curl -fsSL -A \"Mozilla/5.0\" --max-time 30 \"https://hermes-a…",
+      "status": "ok",
+      "at": "2026-11-05T03:04:00.072584Z",
+      "duration_ms": 968,
+      "wrote_this": false
+    },
+    {
+      "tool_call_id": "call-99df4f06-afd1-48e1-b0fb-ba2d2528413f-4",
+      "tool": "write_file",
+      "label": "write_file: q3-note.md",
+      "status": "ok",
+      "at": "2026-11-05T03:04:08.652827Z",
+      "duration_ms": 23,
+      "wrote_this": true
+    }
+  ],
+  "basis_legend": {
+    "observed": "Hermes reported this relationship directly (the tool wrote the file, the model issued the call).",
+    "evidenced": "The artifact's own content names the source (a fetched URL or a read file path appears in it).",
+    "inferred": "The source was read earlier in the same turn (0.6) or in a recent turn of the session (0.35)."
+  },
+  "counts": {
+    "sources": 2,
+    "observed": 0,
+    "evidenced": 2,
+    "inferred": 0
+  },
+  "integrity": {
+    "receipt_sha256": "2ee7e68617b0a7e5ea188354b9ef108d68ced31bf07ed2a6ef0fbb9530fe9a90",
+    "signature": {
+      "alg": "HMAC-SHA256",
+      "key_id": "60239f19fb56",
+      "value": "93c0e1be1136ced54545f898f72ef5dfc22658fe3883adbfa63c0be658c21a6f",
+      "note": "Proves this receipt was issued by the Hermes install whose lineage key has this id; it is not a third-party attestation."
+    }
+  }
+}
