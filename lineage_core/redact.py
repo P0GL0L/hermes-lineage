@@ -60,33 +60,30 @@ _PEM_RE = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
     re.DOTALL,
 )
-_URL_CRED_RE = re.compile(r"(https?://)([^/\s:@]+):([^/\s@]+)@")
-_URL_QUERY_SECRET_RE = re.compile(
-    r"(?i)([?&](?:api[_-]?key|key|token|secret|access[_-]?token|sig|signature|password)=)([^&\s#]+)"
-)
+# user:password@ in any scheme (https, postgres, redis, amqp, ftp, …)
+_URL_CRED_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)([^/\s:@]+):([^/\s@]+)@")
+# Query parameters whose *name* says credential: api_key, X-Amz-Signature, X-Amz-Security-Token,
+# client_secret, refresh_token, sig, code, … (a harmless one masked is fine; a secret stored is not)
+SECRET_PARAM = r"[A-Za-z0-9_.-]*(?:key|token|secret|signature|sig|password|passwd|pwd|credential|session|sid|code|auth)[A-Za-z0-9_.-]*"
+_URL_QUERY_SECRET_RE = re.compile(r"(?i)([?&]" + SECRET_PARAM + r"=)([^&\s#\"'`]+)")
+# Tokens carried in a URL path, e.g. Telegram's https://api.telegram.org/bot<id>:<secret>/getUpdates
+_PATH_TOKEN_RE = re.compile(r"(/bot|(?<![A-Za-z0-9]))(\d{6,}:[A-Za-z0-9_-]{30,})")
 
 # Env-var style assignments inside shell commands: FOO_TOKEN=abc, export X_KEY="..."
 _ENV_ASSIGN_RE = re.compile(
     r"(?i)\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)[A-Z0-9_]*\s*=\s*)([\"']?)([^\s\"']{4,})(\2)"
 )
 
-_SECRET_ARG_NAMES = frozenset(
-    {
-        "api_key",
-        "apikey",
-        "token",
-        "secret",
-        "password",
-        "passwd",
-        "authorization",
-        "auth",
-        "cookie",
-        "cookies",
-        "headers",
-        "credentials",
-        "private_key",
-    }
-)
+# Argument names are compared with case, '_' and '-' removed, so accessToken, access_token and
+# Access-Token are the same name.
+_SECRET_ARG_EXACT = frozenset({"auth", "headers", "cookie", "cookies", "pwd", "pin", "otp", "dsn"})
+_SECRET_ARG_PARTS = ("token", "secret", "password", "passwd", "apikey", "accesskey", "privatekey",
+                     "authorization", "credential", "signature", "cookie", "sessionid", "connectionstring")
+
+
+def is_secret_arg_name(name: str) -> bool:
+    k = re.sub(r"[_\-\s]", "", str(name)).lower()
+    return k in _SECRET_ARG_EXACT or any(part in k for part in _SECRET_ARG_PARTS)
 
 
 def redact_text(text: str) -> str:
@@ -96,6 +93,7 @@ def redact_text(text: str) -> str:
     out = _PEM_RE.sub(MASK, text)
     out = _URL_CRED_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}:{MASK}@", out)
     out = _URL_QUERY_SECRET_RE.sub(lambda m: f"{m.group(1)}{MASK}", out)
+    out = _PATH_TOKEN_RE.sub(lambda m: f"{m.group(1) or ''}{MASK}", out)
     out = _ENV_ASSIGN_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}{MASK}{m.group(4)}", out)
     out = _BEARER_RE.sub(lambda m: f"{m.group(1)} {MASK}", out)
     out = _KV_RE.sub(lambda m: f"{m.group(1)}{MASK}", out)
@@ -133,7 +131,7 @@ def bound_args(args: Any, *, per_value: int = 400, total: int = 4000, depth: int
         budget = total
         for key, value in list(args.items())[:64]:
             k = str(key)
-            if k.lower() in _SECRET_ARG_NAMES:
+            if is_secret_arg_name(k):
                 out[k] = MASK
                 continue
             bounded = bound_args(value, per_value=per_value, total=budget, depth=depth + 1)
@@ -157,4 +155,4 @@ def bound_args(args: Any, *, per_value: int = 400, total: int = 4000, depth: int
     return preview(args, per_value)
 
 
-__all__ = ["MASK", "redact_text", "preview", "bound_args"]
+__all__ = ["MASK", "SECRET_PARAM", "redact_text", "preview", "bound_args", "is_secret_arg_name"]

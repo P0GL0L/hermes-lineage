@@ -39,9 +39,10 @@ def sha256_file(path: str | os.PathLike[str]) -> tuple[str | None, int | None]:
     return h.hexdigest(), size
 
 
-_QUERY_SECRET_RE = re.compile(
-    r"(?i)(^|[?&])((?:api[_-]?key|key|token|secret|access[_-]?token|auth|sig|signature|password|passwd|session|sid|code)=)([^&#]*)"
-)
+from .redact import SECRET_PARAM
+
+_QUERY_SECRET_RE = re.compile(r"(?i)(^|[?&])(" + SECRET_PARAM + r"=)([^&#]*)")
+_PATH_SECRET_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{30,}")
 
 
 def normalize_url(url: str) -> str:
@@ -62,7 +63,7 @@ def normalize_url(url: str) -> str:
             netloc = f"{host}:{parts.port}"
     except ValueError:
         pass
-    path = parts.path or "/"
+    path = _PATH_SECRET_RE.sub("\u00abredacted\u00bb", parts.path or "/")
     if len(path) > 1 and path.endswith("/"):
         path = path[:-1]
     query = _QUERY_SECRET_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}\u00abredacted\u00bb", parts.query or "")

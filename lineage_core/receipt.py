@@ -286,9 +286,22 @@ def write_sidecar(store: Store, ref: str, *, data_dir: Optional[Path] = None) ->
     if not receipt or not receipt["artifact"].get("path"):
         return None
     path = sidecar_path(receipt["artifact"]["path"])
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    if path.is_symlink():
+        raise OSError(f"refusing to write a receipt through a symlink: {path}")
+    data = (json.dumps(receipt, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    # O_EXCL + O_NOFOLLOW: never write through a link planted in a cloned repo
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
     return path
 
 
@@ -325,7 +338,9 @@ def _url_is_safe(url: str) -> bool:
             ip = ipaddress.ip_address(info[4][0])
         except ValueError:
             return False
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+        # is_global also excludes shared address space (100.64.0.0/10: CGNAT, Tailscale) and
+        # documentation ranges, which is_private alone lets through
+        if not ip.is_global or ip.is_multicast:
             return False
     return True
 
@@ -430,6 +445,7 @@ def verify(store: Store, ref: str, *, refetch: bool = False, data_dir: Optional[
             entry["linked_sha256"], entry["current_sha256"] = linked_sha, sha
             if sha is None and _size is None:
                 entry["status"] = "missing"
+                changed += 1  # a source that is gone no longer backs the artifact
             elif (e.get("meta") or {}).get("src_sha256"):
                 entry["status"] = "unchanged" if sha == linked_sha else "changed"
             elif _rewritten_after(store, e, src):
@@ -468,7 +484,7 @@ def verify(store: Store, ref: str, *, refetch: bool = False, data_dir: Optional[
         "artifact": artifact_status,
         "sources_total": len(result["sources"]),
         "sources_changed": changed,
-        "verdict": "fresh" if artifact_status == "unchanged" and changed == 0 else ("stale" if changed else artifact_status),
+        "verdict": artifact_status if artifact_status != "unchanged" else ("stale" if changed else "fresh"),
     }
     store.upsert_node(node["id"], "file", touch=False, meta={"last_verify": {"at": result["checked_at"], "verdict": result["summary"]["verdict"],
                                                             "sources_changed": changed}})
@@ -486,29 +502,41 @@ def _receipt_hash_ok(receipt: dict) -> Optional[bool]:
 
 
 def verify_receipt_file(receipt_path: str) -> dict:
-    """Stand-alone check of a sidecar against the file beside it. Needs no database."""
+    """Stand-alone check of a sidecar against the file *beside it*. Needs no database.
+
+    The receipt names the path it was issued for, but a copy travels: what is checked is the file next
+    to the receipt (``x.md`` for ``x.md.receipt.json``), never the original path, which may be somewhere
+    else entirely. ``ok`` needs the bytes to match, the receipt body to hash to its recorded digest,
+    and the signature to be valid or not checkable here — an INVALID signature always fails."""
     p = Path(receipt_path)
     try:
         receipt = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         return {"ok": False, "error": f"cannot read receipt: {exc}"}
     art = receipt.get("artifact") or {}
-    target = art.get("path") or str(p)[: -len(SIDECAR_SUFFIX)] if str(p).endswith(SIDECAR_SUFFIX) else art.get("path")
-    if target and not os.path.isfile(target) and str(p).endswith(SIDECAR_SUFFIX):
+    if str(p).endswith(SIDECAR_SUFFIX):
         target = str(p)[: -len(SIDECAR_SUFFIX)]
-    sha, size = sha256_file(target) if target else (None, None)
-    return {
-        "ok": bool(sha) and sha == art.get("sha256") and _receipt_hash_ok(receipt) is not False,
+    else:
+        target = str(p.with_name(art.get("name") or os.path.basename(art.get("path") or "")))
+    sha, size = sha256_file(target) if os.path.isfile(target) else (None, None)
+    body_ok = _receipt_hash_ok(receipt)
+    sig = check_signature(receipt)
+    out = {
+        "ok": bool(sha) and sha == art.get("sha256") and body_ok is True and sig is not False,
         "receipt": str(p),
         "artifact": target,
+        "issued_for": art.get("path"),
         "artifact_sha256_matches": sha == art.get("sha256") if sha else False,
-        "receipt_sha256_matches": _receipt_hash_ok(receipt),
-        "signature": {True: "valid", False: "INVALID", None: "not checkable from this install"}[check_signature(receipt)],
+        "receipt_sha256_matches": body_ok,
+        "signature": {True: "valid", False: "INVALID", None: "not checkable from this install"}[sig],
         "recorded_sha256": art.get("sha256"),
         "current_sha256": sha,
         "sources": len(receipt.get("sources") or []),
         "schema": receipt.get("schema"),
     }
+    if sha is None:
+        out["error"] = "no file beside the receipt"
+    return out
 
 
 # -------------------------------------------------------------------- exports

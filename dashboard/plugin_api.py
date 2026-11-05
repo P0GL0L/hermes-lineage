@@ -52,23 +52,23 @@ def _node_or_404(store, ref: str) -> dict:
 
 
 @router.get("/health")
-async def health():
+def health():
     core = _core()
     return {"ok": True, "plugin": core.PLUGIN_ID, "version": core.__version__}
 
 
 @router.get("/stats")
-async def stats():
+def stats():
     return _store().stats()
 
 
 @router.get("/sessions")
-async def sessions(limit: int = Query(50, ge=1, le=500)):
+def sessions(limit: int = Query(50, ge=1, le=500)):
     return {"sessions": _store().list_sessions(limit=limit)}
 
 
 @router.get("/artifacts")
-async def artifacts(
+def artifacts(
     session_id: Optional[str] = None,
     q: Optional[str] = None,
     since: Optional[float] = None,
@@ -79,7 +79,7 @@ async def artifacts(
 
 
 @router.get("/node")
-async def node(id: str):
+def node(id: str):
     store = _store()
     n = _node_or_404(store, id)
     out = dict(n)
@@ -95,7 +95,7 @@ async def node(id: str):
 
 
 @router.get("/graph")
-async def graph(id: str, depth: int = Query(6, ge=1, le=12), direction: str = Query("provenance", pattern="^(up|down|both|provenance)$")):
+def graph(id: str, depth: int = Query(6, ge=1, le=12), direction: str = Query("provenance", pattern="^(up|down|both|provenance)$")):
     store = _store()
     n = _node_or_404(store, id)
     g = store.neighborhood(n["id"], depth=depth, direction=direction)
@@ -106,7 +106,7 @@ async def graph(id: str, depth: int = Query(6, ge=1, le=12), direction: str = Qu
 
 
 @router.get("/receipt")
-async def receipt(id: str):
+def receipt(id: str):
     store = _store()
     n = _node_or_404(store, id)
     r = _receipt_mod().build_receipt(store, n["id"])
@@ -116,14 +116,14 @@ async def receipt(id: str):
 
 
 @router.get("/explain")
-async def explain(id: str):
+def explain(id: str):
     store = _store()
     n = _node_or_404(store, id)
     return {"text": _receipt_mod().explain(store, n["id"]) or ""}
 
 
 @router.get("/mermaid")
-async def mermaid(id: str, depth: int = Query(6, ge=1, le=12)):
+def mermaid(id: str, depth: int = Query(6, ge=1, le=12)):
     store = _store()
     n = _node_or_404(store, id)
     return {"mermaid": _receipt_mod().to_mermaid(store.neighborhood(n["id"], depth=depth))}
@@ -139,7 +139,7 @@ class VerifyBody(BaseModel):
 
 
 @router.post("/receipt/write")
-async def receipt_write(body: IdBody):
+def receipt_write(body: IdBody):
     store = _store()
     n = _node_or_404(store, body.id)
     path = _receipt_mod().write_sidecar(store, n["id"])
@@ -149,7 +149,7 @@ async def receipt_write(body: IdBody):
 
 
 @router.post("/verify")
-async def verify(body: VerifyBody):
+def verify(body: VerifyBody):
     store = _store()
     n = _node_or_404(store, body.id)
     res = _receipt_mod().verify(store, n["id"], refetch=body.refetch)
@@ -159,7 +159,7 @@ async def verify(body: VerifyBody):
 
 
 @router.get("/activity")
-async def activity(since: Optional[float] = None, limit: int = Query(50, ge=1, le=500)):
+def activity(since: Optional[float] = None, limit: int = Query(50, ge=1, le=500)):
     """Recently touched artifacts, for the status-bar chip and live refresh fallback."""
     store = _store()
     rows = store.list_artifacts(since=since, limit=limit)

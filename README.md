@@ -128,7 +128,7 @@ hermes lineage verify q3-note.md --refetch     # also re-fetch URL sources — t
 | verdict | meaning |
 |---|---|
 | **fresh** | nothing moved |
-| **stale** | a source changed since the artifact was made |
+| **stale** | a source changed (or is gone) since the artifact was made |
 | **modified** | the artifact itself changed |
 | **missing** | the artifact is gone |
 
@@ -152,7 +152,7 @@ Said plainly, because the receipts are only worth something if their limits are.
 
 - lineage sees what Hermes's hooks report. A file written by a background process that outlives the tool call, or by anything outside Hermes, is not attributed.
 - *Inferred* means inferred. The `basis` and `confidence` fields exist so you can ignore the dashed lines.
-- Working trees over `snapshot_max_files` (6000) or slower than half a second to walk are not scanned after terminal calls; `write_file`/`patch` attribution still works there. A file another process modifies during a terminal call's window can be attributed to that call.
+- Working trees over `snapshot_max_files` (6000) or slower than half a second to walk are not scanned after terminal calls; `write_file`/`patch` attribution still works there. Which files a shell command wrote is inferred from the working tree, and labelled so: a file another process modifies during the call's window would be attributed to that call too.
 - URL hashes are of Hermes's extracted text; raw re-fetches establish their own baseline.
 - The signature proves which install issued a receipt, nothing more.
 - Under `plugins.isolation: host`, the Desktop backend and `/lineage` still work but `hermes lineage …` is not wired (Hermes does not route CLI subcommands into the host).
@@ -177,7 +177,7 @@ plugins:
 
 ## How it works, briefly
 
-Ten observer hooks → a SQLite graph at `<HERMES_HOME>/plugin-data/lineage/lineage.db` → receipts and the page. `write_file` and `patch` (including V4A multi-file patches) are observed directly; `terminal` and `execute_code` get one bounded walk of the working tree after the call, attributing every file whose mtime falls inside the call's window; `read_file`, `web_search`, `web_extract`, `skill_view`, and paths or URLs named in commands and arguments become sources; when an artifact lands, its text is scanned for the session's sources (evidenced), then the turn's reads (inferred 0.6) and the last three turns' (0.35). `api_request_id` on each tool call links it to the model request that issued it; `subagent_start/stop` carry the agent chain.
+Ten observer hooks → a SQLite graph at `<HERMES_HOME>/plugin-data/lineage/lineage.db` → receipts and the page. `write_file` and `patch` (including V4A multi-file patches) are observed directly; `terminal` and `execute_code` get one bounded walk of the working tree after the call, attributing (as *inferred*) every file that changed inside the call's window, even when the command exits non-zero; `read_file`, `web_search`, `web_extract`, `skill_view`, and paths or URLs named in commands and arguments become sources; when an artifact lands, its text is scanned for the session's sources (evidenced), then the turn's reads (inferred 0.6) and the last three turns' (0.35). `api_request_id` on each tool call links it to the model request that issued it; `subagent_start/stop` carry the agent chain.
 
 Everything stored is bounded and redacted before it reaches disk — vendor key prefixes, `token=`, `Bearer …`, PEM blocks, `FOO_KEY=…` in shell text, `user:pass@` and credential-shaped query values in URLs. A blocked or failed tool call records nothing.
 
@@ -187,7 +187,7 @@ The full account — every node kind, edge rule, bound and redaction — is in *
 
 ## Disclosure
 
-Hooks only (`post_tool_call`, `pre_llm_call`, `post_llm_call`, `post_api_request`, `api_request_error`, `post_auxiliary_call`, `subagent_start`, `subagent_stop`, `on_session_start`, `on_session_end`); no tools, no middleware, no LLM calls, no credentials. Runs no commands. Hashes files the agent read or wrote (up to 32 MB), scans the text of files it wrote for sources (up to 512 KB) and stats the working tree once after `terminal`/`execute_code` calls (bounded by file count and time). Receipts and verify apply only to files the agent produced, never to files it only read. Writes only under `<HERMES_HOME>/plugin-data/lineage/` (SQLite store, `install.key`) and, on request or with `sidecar: true`, `<file>.receipt.json` beside artifacts. Stores redacted, bounded previews of prompts, tool arguments and results (`store_previews: false` turns previews off). Network only when you run `verify --refetch` or press *Verify + refetch URLs*, and then only `GET` to the recorded source URLs on public hosts (loopback, private and link-local addresses are refused, through Hermes's own `is_safe_url` when available; redirects are followed only to hosts that pass the same check, at most 5 hops). No telemetry.
+Hooks only (`post_tool_call`, `pre_llm_call`, `post_llm_call`, `post_api_request`, `api_request_error`, `post_auxiliary_call`, `subagent_start`, `subagent_stop`, `on_session_start`, `on_session_end`); no tools, no middleware, no LLM calls, no credentials. Runs no commands. Hashes files the agent read or wrote, and files named in a terminal command (up to 32 MB; credential files such as `~/.ssh/*`, `.env*` and `*.pem` are never opened on a guess), scans the text of files it wrote for sources (up to 512 KB) and stats the working tree once after `terminal`/`execute_code` calls (bounded by file count and time). Receipts and verify apply only to files the agent produced, never to files it only read. Writes only under `<HERMES_HOME>/plugin-data/lineage/` (SQLite store, `install.key`) and, on request or with `sidecar: true`, `<file>.receipt.json` beside artifacts. Stores redacted, bounded previews of prompts, tool arguments and results (`store_previews: false` turns previews off). Network only when you run `verify --refetch` or press *Verify + refetch URLs*, and then only `GET` to the recorded source URLs on public hosts (loopback, private and link-local addresses are refused, through Hermes's own `is_safe_url` when available; redirects are followed only to hosts that pass the same check, at most 5 hops). No telemetry.
 
 ## Validated
 

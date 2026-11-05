@@ -39,8 +39,11 @@ guards itself twice: a provenance recorder that can interrupt the agent is worse
 | `skill` | `skill:<name>` | `skill_view` |
 
 URL ids are normalized: scheme and host lowercased, `www.` and fragments dropped, userinfo removed,
-credential-shaped query values (`token=`, `key=`, `sig=`…) masked. A secret-bearing URL never becomes
-a node id.
+query values whose *name* says credential masked (`token`, `key`, `sig`, `X-Amz-Signature`,
+`X-Amz-Security-Token`, `client_secret`, `code`, …), and tokens carried in the path (Telegram's
+`/bot<id>:<secret>/`) masked. The same rules, plus `user:password@` in any scheme (`postgres://`,
+`redis://`…), apply to every preview, label and argument lineage stores; arguments whose name says
+credential (`accessToken`, `client_secret`, `Authorization`…) are stored as `«redacted»`.
 
 ## Edges and the three bases
 
@@ -49,9 +52,9 @@ into receipts. It is never collapsed into a single "derived from".
 
 | basis | confidence | how it arises |
 |---|---|---|
-| **observed** | 1.0 | Hermes reported it directly: `wrote` (the tool wrote this path), `read`, `invoked` (model call → tool call, via `api_request_id`), `produced_by`, `produced_in`, `delegated_by`, `spawned_in`, `returned` (search → URL) |
+| **observed** | 1.0 | Hermes reported it directly: `wrote` (`write_file`/`patch` wrote this path), `read` (`read_file`, `web_extract`, …), `invoked` (model call → tool call, via `api_request_id`), `produced_by`, `produced_in`, `delegated_by`, `spawned_in`, `returned` (search → URL) |
 | **evidenced** | 0.9 | the artifact's own bytes name the source: a fetched URL or a read file's path appears in the written text; also `cited_in_reply` when the final answer names an artifact or URL |
-| **inferred** | 0.6 / 0.35 | the source was read earlier in the same turn (0.6) or in one of the last `session_window_turns` turns (0.35) |
+| **inferred** | 0.8 / 0.6 / 0.5 / 0.35 | lineage worked it out: a file changed in the working tree during a `terminal`/`execute_code` call is attributed to that call (0.8); a file or URL named in a command is taken as read by it (0.5); a source read earlier in the same turn (0.6, newest `turn_max_inferred_sources` = 25) or in one of the last `session_window_turns` turns (0.35) |
 
 When the same pair is linked more than once, the stronger basis wins and the weaker is dropped.
 
@@ -61,8 +64,8 @@ When the same pair is linked more than once, the stronger basis wins and the wea
 |---|---|---|
 | `write_file` | `args.path` | observed |
 | `patch` (replace mode) | `args.path` | observed |
-| `patch` (V4A multi-file, OpenAI-family models) | `*** Update File:` / `*** Add File:` lines parsed from `args.patch` | observed |
-| `terminal`, `execute_code` | one bounded walk of the working directory after the call; every regular file whose mtime falls inside the call's window | observed |
+| `patch` (V4A multi-file, OpenAI-family models) | `*** Update File:` / `*** Add File:` targets and `*** Move File: a -> b` destinations (Hermes's own header grammar); deleted files and move sources are not artifacts | observed |
+| `terminal`, `execute_code` | one bounded walk of the working directory after the call; every regular file whose mtime *or* ctime falls inside the call's window (ctime catches `mv`), credential files excepted. Recorded even when the command exits non-zero — its outputs are real | inferred (0.8) |
 | any other tool | a path named in the tool's result that exists and was modified during the call (image generators, converters, MCP tools) | inferred |
 
 The terminal walk is bounded by `snapshot_max_files` (6000) and `snapshot_max_seconds` (0.5); a tree
@@ -71,7 +74,10 @@ that is too big or too slow yields nothing rather than a slow hook. At most `max
 `node_modules`, build output and the like are skipped; `.pyc`, `.lock`, `.tmp` and `.receipt.json`
 are never artifacts.
 
-A blocked or failed tool call records nothing it would have read or written.
+A failed `write_file`/`patch`/read records nothing. A file found by the walk with the same bytes as an
+earlier artifact is linked to it (*same bytes as …, moved or copied*), so `mv draft.md final.md`
+keeps its lineage. When an artifact is rewritten with new bytes, its sources are re-derived from
+scratch: a receipt describes the version on disk; earlier hashes stay in `versions`.
 
 ## What counts as a source
 
@@ -81,7 +87,7 @@ A blocked or failed tool call records nothing it would have read or written.
 | `web_search` | the query node, plus every URL it returned (`returned` edges) |
 | `web_extract` | each URL, with a SHA-256 of the extracted content and the fetch time |
 | `skill_view` | the skill |
-| `terminal`, `execute_code` | existing files and URLs named in the command or code |
+| `terminal`, `execute_code` | existing files and URLs named in the command or code (inferred), except the call's own outputs and credential files (`~/.ssh`, `~/.gnupg`, `~/.aws`, `.env*`, `*.pem`, `*.key`, `id_rsa`…), which are never opened on a guess |
 | anything else | URLs anywhere in the arguments; files named by `path`, `file`, `input`, `source`, `paths`, `files` |
 
 ## Evidence scan
@@ -116,7 +122,15 @@ otherwise a local resolver check that refuses loopback, private and link-local a
 the first refetch stores a baseline fingerprint (hash, ETag, Last-Modified) and later runs report
 `unchanged since` / `changed since` that date.
 
-Verdicts: `fresh`, `stale` (a source changed), `modified` (the artifact changed), `missing`.
+Verdicts: `fresh`, `stale` (a source changed or is gone), `modified` (the artifact changed), `missing`.
+The artifact is checked against the hash its producing tool *wrote*: a later read of the same file
+never replaces it, so an edit by someone else stays visible (what the read saw is kept as
+`last_read_sha256`). Sources are checked against the hash they had when the artifact was built.
+
+`hermes lineage check x.md.receipt.json` checks the file *beside* the receipt (`x.md`), never the path
+the receipt was issued for, so a copied pair is checked as it travels. `ok` needs the bytes to match,
+the receipt body to match its digest, and the signature to be valid or not checkable on this install;
+an `INVALID` signature always fails.
 
 ## What is stored, and what is not
 

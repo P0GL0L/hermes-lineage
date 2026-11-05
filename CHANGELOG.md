@@ -2,10 +2,32 @@
 
 ## 0.1.5 — 2026-11-05
 
-From the catalog review (thanks, Teknium): the disclosure now says *redirects are followed* on `verify --refetch`, and they were — without a second check.
+From the catalog review (thanks, Teknium) and a second independent review of the code. Every item has a test that fails on 0.1.4.
 
-- `verify --refetch` checks every redirect hop against the same public-host rule as the first URL (Hermes's `is_safe_url` when available), at most 5 hops. A public page can no longer bounce the request to loopback, a private network or a cloud metadata address; the source reports `refused` with the redirect target instead. Reachable results record `final_url` when a redirect was followed.
-- README and catalog disclosure match the reviewed wording.
+**Security and honesty**
+- `verify --refetch` checks every redirect hop against the same public-host rule as the first URL, at most 5 hops. A public page can no longer bounce it to loopback, a private network or a metadata address. The fallback check now refuses everything that is not globally routable, including 100.64.0.0/10 (CGNAT, Tailscale).
+- `hermes lineage check` hashes the file *beside* the receipt, not the path the receipt was issued for, so a tampered copy no longer passes by pointing at the untouched original. An `INVALID` signature now fails the check.
+- Redaction covers tokens in URL paths (Telegram `/bot<id>:<secret>/`), any query parameter whose name says credential (`X-Amz-Signature`, `X-Amz-Security-Token`, `client_secret`, …), `user:password@` in any scheme (`postgres://`, `redis://`), and camelCase argument names (`accessToken`).
+- Files merely *named* in a shell command are no longer opened when they look like credentials (`~/.ssh/*`, `~/.aws`, `.env*`, `*.pem`, `*.key`, `id_rsa`); the working-tree scan skips them too. The disclosure says files named in commands are hashed.
+- Which files a shell command wrote, and which named files it read, is now labelled **inferred** (it comes from the working tree and the command text, not from Hermes). **Observed** means Hermes reported it, as documented.
+- Receipt sidecars are written with `O_EXCL | O_NOFOLLOW` and never through a symlink.
+- Desktop opens only `http(s)` links; search results with other schemes are not recorded.
+
+**Correctness**
+- Reading an artifact no longer replaces its recorded hash: if someone edits the file and the agent reads it, Verify says *modified* instead of *fresh*.
+- A rewritten artifact's sources are re-derived: version 2 no longer inherits version 1's evidence. Earlier hashes stay in `versions`.
+- Hermes's `on_session_start` (which carries no parent id) no longer overwrites a subagent's role with `main`.
+- A command's outputs are not also recorded as its inputs (`python make.py > summary.txt`). Renames are caught (`mv` updates ctime) and linked to the earlier artifact with the same bytes.
+- V4A `*** Move File: a -> b` and `*** Delete File:` are understood with Hermes's own header grammar; evidence comes from the file after the patch, not from removed lines.
+- Files written by a command that exits non-zero (`pytest --junitxml=…` with failures) are recorded, marked `call_status: error`.
+- A deleted source makes the artifact *stale*.
+- Two sources with the same file name in different folders are told apart by the path in the text.
+- `prune` keeps nodes that a newer session still reads or cites.
+- `resolve` handles `./name`, dotfiles and `_`/`%` in names.
+
+**Performance**
+- Each tool call's writes go into one SQLite transaction; inferred links per artifact are capped (`turn_max_inferred_sources`, 25 newest). A turn with 400 reads and a command writing 50 files went from 21,753 edges and 8.7 s inside the hook to 1,403 edges and 0.3 s (measured in this container).
+- Dashboard API routes are plain functions, so FastAPI runs them in its threadpool; *Verify + refetch URLs* no longer blocks the Hermes web server's event loop.
 
 ## 0.1.4 — 2026-11-05
 

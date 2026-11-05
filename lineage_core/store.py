@@ -22,6 +22,7 @@ import os
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -165,6 +166,7 @@ class Store:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._batch_depth = 0
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False, timeout=5.0)
         self._conn.row_factory = sqlite3.Row
         try:
@@ -190,13 +192,37 @@ class Store:
             except Exception:
                 pass
 
+    @contextmanager
+    def _tx(self):
+        """One write transaction — or none of its own inside :meth:`batch`."""
+        with self._lock:
+            if self._batch_depth:
+                yield
+            else:
+                with self._conn:
+                    yield
+
+    @contextmanager
+    def batch(self):
+        """Group many writes into one transaction (one fsync instead of one per edge). Holds the lock."""
+        with self._lock:
+            self._batch_depth += 1
+            try:
+                if self._batch_depth == 1:
+                    with self._conn:
+                        yield self
+                else:
+                    yield self
+            finally:
+                self._batch_depth -= 1
+
     def meta_get(self, key: str, default: Optional[str] = None) -> Optional[str]:
         with self._lock:
             row = self._conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
         return row["value"] if row else default
 
     def meta_set(self, key: str, value: str) -> None:
-        with self._lock, self._conn:
+        with self._tx():
             self._conn.execute(
                 "INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (key, value),
@@ -218,7 +244,7 @@ class Store:
         if not session_id:
             return
         now = time.time()
-        with self._lock, self._conn:
+        with self._tx():
             row = self._conn.execute("SELECT meta FROM sessions WHERE id=?", (session_id,)).fetchone()
             if row is None:
                 self._conn.execute(
@@ -237,7 +263,7 @@ class Store:
                 )
 
     def end_session(self, session_id: str, ended_at: Optional[float] = None) -> None:
-        with self._lock, self._conn:
+        with self._tx():
             self._conn.execute(
                 "UPDATE sessions SET ended_at=? WHERE id=?", (ended_at or time.time(), session_id)
             )
@@ -270,7 +296,7 @@ class Store:
     ) -> None:
         if not turn_id:
             return
-        with self._lock, self._conn:
+        with self._tx():
             self._conn.execute(
                 "INSERT INTO turns(id, session_id, started_at, model, platform, user_preview, user_sha, status, meta)"
                 " VALUES(?,?,?,?,?,?,?,'open','{}')"
@@ -292,7 +318,7 @@ class Store:
     ) -> None:
         if not turn_id:
             return
-        with self._lock, self._conn:
+        with self._tx():
             self._conn.execute(
                 "UPDATE turns SET ended_at=?, assistant_preview=?, assistant_sha=?, status=? WHERE id=?",
                 (ended_at or time.time(), assistant_preview, assistant_sha, status, turn_id),
@@ -337,7 +363,7 @@ class Store:
         merges bookkeeping (a verify result) without moving ``updated_at``, which the UI shows as
         "written … ago"."""
         now = time.time()
-        with self._lock, self._conn:
+        with self._tx():
             row = self._conn.execute("SELECT * FROM nodes WHERE id=?", (node_id,)).fetchone()
             if row is None:
                 self._conn.execute(
@@ -387,9 +413,12 @@ class Store:
         if node:
             return node
         with self._lock:
+            rel = ref[2:] if ref.startswith("./") else ref
+            esc = rel.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             row = self._conn.execute(
-                "SELECT * FROM nodes WHERE kind='file' AND (path LIKE ? OR label=?) ORDER BY produced DESC, updated_at DESC LIMIT 1",
-                ("%/" + ref.lstrip("./"), ref),
+                "SELECT * FROM nodes WHERE kind='file' AND (path LIKE ? ESCAPE '\\' OR label=?)"
+                " ORDER BY produced DESC, updated_at DESC LIMIT 1",
+                ("%/" + esc, rel),
             ).fetchone()
             if row is None:
                 row = self._conn.execute(
@@ -507,16 +536,22 @@ class Store:
             confidence = {"observed": 1.0, "evidenced": 0.9, "inferred": 0.5}[basis]
         now = time.time()
         meta = dict(meta or {})
-        with self._lock, self._conn:
+        with self._tx():
             if rel == "derived_from":
                 # Snapshot the source as it is *now*, when the artifact is linked to it. The source node
                 # keeps moving (a later session may rewrite the file); verify and the graph compare
                 # against this snapshot, not against the node's latest state.
-                dst_row = self._conn.execute("SELECT sha256, size FROM nodes WHERE id=?", (dst,)).fetchone()
+                dst_row = self._conn.execute("SELECT sha256, size, updated_at, meta FROM nodes WHERE id=?", (dst,)).fetchone()
                 meta["linked_at"] = now
-                if dst_row is not None and dst_row["sha256"]:
-                    meta["src_sha256"] = dst_row["sha256"]
-                    meta["src_size"] = dst_row["size"]
+                if dst_row is not None:
+                    sha, size = dst_row["sha256"], dst_row["size"]
+                    # A produced file keeps its last *written* hash; if the agent read it since and saw
+                    # other bytes (someone edited it), the artifact was built from what it read.
+                    dm = _loads(dst_row["meta"])
+                    if dm.get("last_read_sha256") and (dm.get("last_read_at") or 0) > (dst_row["updated_at"] or 0):
+                        sha, size = dm["last_read_sha256"], dm.get("last_read_size", size)
+                    if sha:
+                        meta["src_sha256"], meta["src_size"] = sha, size
             row = self._conn.execute(
                 "SELECT id, basis, confidence, meta FROM edges WHERE src=? AND dst=? AND rel=?", (src, dst, rel)
             ).fetchone()
@@ -576,6 +611,20 @@ class Store:
         with self._lock:
             return int(self._conn.execute(sql, params).fetchone()[0])
 
+    def clear_edges(self, src: str, rel: str) -> int:
+        """Drop every *rel* edge out of *src* (an artifact's sources are re-derived for each new version)."""
+        with self._tx():
+            cur = self._conn.execute("DELETE FROM edges WHERE src=? AND rel=?", (src, rel))
+            return cur.rowcount or 0
+
+    def nodes_with_sha(self, sha256: str, *, exclude: str, kind: str = "file", limit: int = 3) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM nodes WHERE kind=? AND sha256=? AND id<>? ORDER BY updated_at DESC LIMIT ?",
+                (kind, sha256, exclude, limit),
+            ).fetchall()
+        return [self._row(r) for r in rows]
+
     # ---------------------------------------------------------------- versions
     def add_version(
         self,
@@ -588,7 +637,7 @@ class Store:
         created_at: Optional[float] = None,
     ) -> bool:
         """Record a new content version; returns False when the hash is unchanged from the last one."""
-        with self._lock, self._conn:
+        with self._tx():
             last = self._conn.execute(
                 "SELECT sha256 FROM versions WHERE node_id=? ORDER BY created_at DESC, id DESC LIMIT 1", (node_id,)
             ).fetchone()
@@ -702,27 +751,42 @@ class Store:
         return {"counts": counts, "edges_by_basis": basis, "last_activity": last, "db_bytes": db_bytes, "db_path": str(self.path)}
 
     def prune(self, before: float) -> dict:
-        """Delete sessions (and everything hanging off them) that ended before *before*."""
-        with self._lock, self._conn:
+        """Delete sessions (and what only they used) that ended before *before*.
+
+        A node belongs to the session that first saw it, but a later session may still read it or cite
+        it: a node linked to anything outside the pruned sessions is handed to the newest such session
+        and kept, with its versions."""
+        with self._tx():
             sess = [r["id"] for r in self._conn.execute(
                 "SELECT id FROM sessions WHERE COALESCE(ended_at, started_at) < ?", (before,)
             )]
-            removed_nodes = 0
+            pruned = set(sess)
+            removed_nodes = kept = 0
             for sid in sess:
                 ids = [r["id"] for r in self._conn.execute("SELECT id FROM nodes WHERE session_id=?", (sid,))]
                 for nid in ids:
+                    heir = self._conn.execute(
+                        "SELECT o.session_id AS sid FROM edges e JOIN nodes o ON o.id = CASE WHEN e.src=? THEN e.dst ELSE e.src END"
+                        " WHERE (e.src=? OR e.dst=?) AND o.session_id IS NOT NULL AND o.session_id NOT IN (%s)"
+                        " ORDER BY o.updated_at DESC LIMIT 1" % ",".join("?" for _ in pruned),
+                        (nid, nid, nid, *pruned),
+                    ).fetchone()
+                    if heir is not None:
+                        self._conn.execute("UPDATE nodes SET session_id=? WHERE id=?", (heir["sid"], nid))
+                        kept += 1
+                        continue
                     self._conn.execute("DELETE FROM edges WHERE src=? OR dst=?", (nid, nid))
                     self._conn.execute("DELETE FROM versions WHERE node_id=?", (nid,))
-                self._conn.execute("DELETE FROM nodes WHERE session_id=?", (sid,))
+                    self._conn.execute("DELETE FROM nodes WHERE id=?", (nid,))
+                    removed_nodes += 1
                 self._conn.execute("DELETE FROM turns WHERE session_id=?", (sid,))
                 self._conn.execute("DELETE FROM sessions WHERE id=?", (sid,))
-                removed_nodes += len(ids)
         try:
             with self._lock:
                 self._conn.execute("VACUUM")
         except sqlite3.DatabaseError:
             pass
-        return {"sessions": len(sess), "nodes": removed_nodes}
+        return {"sessions": len(sess), "nodes": removed_nodes, "kept_shared": kept}
 
     # ----------------------------------------------------------------- helpers
     @staticmethod

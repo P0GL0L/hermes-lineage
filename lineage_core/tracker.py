@@ -56,6 +56,24 @@ IGNORED_DIRS = {
 # Files lineage never treats as artifacts even when a command touched them.
 IGNORED_FILE_SUFFIXES = (".pyc", ".pyo", ".swp", ".tmp", ".lock", ".receipt.json")
 IGNORED_FILE_NAMES = {".DS_Store", "Thumbs.db"}
+# Credential locations: a file merely *named* in a shell command is not opened when it looks like one
+# of these (``chmod 600 ~/.ssh/id_rsa`` must not make lineage read a private key).
+_CREDENTIAL_DIRS = {".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".password-store"}
+_CREDENTIAL_NAME_RE = re.compile(
+    r"(?i)^(?:\.env(?:\..*)?|\.netrc|\.npmrc|\.pypirc|\.pgpass|\.git-credentials|credentials(?:\..*)?|"
+    r"id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|.*\.(?:pem|key|p12|pfx|jks|keystore|kdbx|keychain-db))$"
+)
+_V4A_FILE_HEADER = re.compile(r"^\*\*\*\s*(Update|Add|Delete)\s+File:\s*(.+?)\s*$")
+_V4A_MOVE_HEADER = re.compile(r"^\*\*\*\s*Move\s+File:\s*(.+?)\s*->\s*(.+?)\s*$")
+
+
+def looks_like_credential(path: str) -> bool:
+    parts = Path(path).parts
+    if any(part in _CREDENTIAL_DIRS for part in parts):
+        return True
+    if any(a == ".config" and b in {"gcloud", "gh"} for a, b in zip(parts, parts[1:])):
+        return True
+    return bool(_CREDENTIAL_NAME_RE.match(os.path.basename(path)))
 
 
 DEFAULTS: dict[str, Any] = {
@@ -66,6 +84,7 @@ DEFAULTS: dict[str, Any] = {
     "evidence_scan_bytes": 512 * 1024,
     "session_window_turns": 3,
     "session_window_max_sources": 25,
+    "turn_max_inferred_sources": 25,
     "sidecar": False,
     "store_previews": True,
     "track_aux_calls": True,
@@ -200,6 +219,15 @@ class Tracker:
         sha, size = (None, None)
         if hash_now:
             sha, size = sha256_file(abs_path)
+        if not produced:
+            existing = self.store.get_node(nid)
+            if existing and existing.get("produced"):
+                # A file the agent made keeps the hash it *wrote* (verify and receipts check against it).
+                # What a later read saw is kept beside it, so tampering stays visible.
+                return self.store.upsert_node(
+                    nid, "file", consumed=consumed, touch=False,
+                    meta={**(meta or {}), "last_read_sha256": sha, "last_read_size": size, "last_read_at": _now()},
+                )
         node = self.store.upsert_node(
             nid, "file", label=os.path.basename(abs_path) or abs_path, path=abs_path, sha256=sha, size=size,
             session_id=session_id, turn_id=turn_id, tool_call_id=tool_call_id, produced=produced,
@@ -230,12 +258,16 @@ class Tracker:
         if cwd:
             self._session_cwd[sid] = cwd
         parent = _s(kw.get("parent_session_id"))
+        # Hermes's on_session_start carries no parent id; a child announced by subagent_start first
+        # already has its role, which "main" must not overwrite.
+        known = self.store.get_session(sid)
+        is_root = not parent and not (known and (known.get("role") or known.get("parent_session_id")))
         self.store.upsert_session(
             sid, parent_session_id=parent, platform=_s(kw.get("platform")),
-            model=_s(kw.get("model")), cwd=cwd, role=None if parent else "main",
+            model=_s(kw.get("model")), cwd=cwd, role="main" if is_root else None,
             meta={"profile": _s(kw.get("profile_name")), "provider": _s(kw.get("provider"))},
         )
-        self._ensure_agent(sid, None if parent else "main", model=_s(kw.get("model")), platform=_s(kw.get("platform")))
+        self._ensure_agent(sid, "main" if is_root else None, model=_s(kw.get("model")), platform=_s(kw.get("platform")))
 
     @_safe
     def on_session_end(self, **kw) -> None:
@@ -311,7 +343,9 @@ class Tracker:
         with self._lock:
             # Keep recent turn state around for late post_tool_call events; trim the oldest beyond 64.
             if len(self._turns) > 64:
-                for old_id in sorted(self._turns, key=lambda k: self._turns[k].started)[:32]:
+                live = set(self._session_turn.values())
+                stale = [k for k in sorted(self._turns, key=lambda k: self._turns[k].started) if k not in live]
+                for old_id in stale[:32]:
                     self._turns.pop(old_id, None)
 
 
@@ -446,41 +480,57 @@ class Tracker:
         cwd = self._cwd(sid)
         ctx = dict(session_id=sid, turn_id=tid, tool_call_id=tcid)
 
-        # Only a call that completed read or wrote anything: a blocked or failed tool touched nothing.
-        if status != "ok":
+        # A failed write or read touched nothing. A shell command is different: `pytest --junitxml=r.xml`
+        # or a build that writes its output and then exits 1 is reported as an error, yet the files it
+        # wrote are real, so terminal/execute_code are always scanned for changed files.
+        if status != "ok" and tool not in EXEC_TOOLS:
             return
 
-        # 1. What did this call read?
-        consumed_ids = self._record_consumed(tool, args, result_text, status, cwd, tc_node, ctx)
-        if st is not None:
-            for nid in consumed_ids:
-                if nid not in st.consumed:
-                    st.consumed.append(nid)
+        with self.store.batch():
+            self._post_tool_call_body(tool, args, status, result_text, rec, st, cwd, tc_node, ctx)
 
-        # 2. What did this call produce?
-        produced: list[tuple[str, Optional[str]]] = []  # (abs_path, evidence_text)
+    def _post_tool_call_body(self, tool: str, args: dict, status: str, result_text: str, rec: dict,
+                             st: Optional[_TurnState], cwd: Optional[str], tc_node: str, ctx: dict) -> None:
+        started = rec["started"]
+        # 1. What did this call produce? (first, so a command's outputs are not mistaken for its inputs)
+        produced: list[tuple[str, Optional[str], str, Optional[str]]] = []  # (abs_path, evidence, basis, reason)
         if tool == "write_file" and args.get("path"):
-            produced.append((resolve_path(str(args["path"]), cwd), args.get("content") if isinstance(args.get("content"), str) else None))
+            content = args.get("content") if isinstance(args.get("content"), str) else None
+            produced.append((resolve_path(str(args["path"]), cwd), content, "observed", None))
         elif tool == "patch":
             if args.get("path"):
-                produced.append((resolve_path(str(args["path"]), cwd), args.get("new_string") if isinstance(args.get("new_string"), str) else None))
+                # evidence is the whole file after the edit, not the replacement snippet
+                produced.append((resolve_path(str(args["path"]), cwd), None, "observed", None))
             elif isinstance(args.get("patch"), str):  # V4A multi-file patch (OpenAI-family models)
-                for rel in self._v4a_paths(args["patch"]):
-                    produced.append((resolve_path(rel, cwd), args["patch"]))
+                for rel in self._v4a_written_paths(args["patch"]):
+                    produced.append((resolve_path(rel, cwd), None, "observed", None))
         elif tool in EXEC_TOOLS:
             workdir = _s(args.get("workdir")) or cwd
             if workdir:
                 for changed in self._modified_since(workdir, started):
-                    produced.append((changed, None))
+                    # Hermes says the command ran; *which* files it wrote is lineage's inference from the
+                    # working tree (another process writing there at the same moment would look the same).
+                    produced.append((changed, None, "inferred", "changed in the working tree during this call"))
+        produced_paths = {p for p, *_ in produced}
+
+        # 2. What did this call read?
+        if status == "ok":
+            consumed_ids = self._record_consumed(tool, args, result_text, status, cwd, tc_node, ctx, exclude=produced_paths)
+            if st is not None:
+                for nid in consumed_ids:
+                    if nid not in st.consumed:
+                        st.consumed.append(nid)
+
         # Any tool may announce a file it just made (image_generate, converters, MCP tools): a path in the
         # result that exists and was modified during the call counts, labelled as inferred.
-        result_new = self._paths_created_during(result_text, cwd, rec["started"])
-        known = {p for p, _ in produced}
-        inferred_outputs = [p for p in result_new if p not in known]
+        inferred_outputs = []
+        if status == "ok":
+            inferred_outputs = [p for p in self._paths_created_during(result_text, cwd, started) if p not in produced_paths]
 
         cap = int(self.config.get("max_artifacts_per_call") or 50)
-        for abs_path, evidence in produced[:cap]:
-            self._record_artifact(abs_path, tool, tc_node, ctx, st, evidence, basis="observed")
+        extra = {"call_status": status} if status != "ok" else {}
+        for abs_path, evidence, basis, reason in produced[:cap]:
+            self._record_artifact(abs_path, tool, tc_node, ctx, st, evidence, basis=basis, reason=reason, extra=extra)
         for abs_path in inferred_outputs[: max(0, cap - len(produced))]:
             self._record_artifact(abs_path, tool, tc_node, ctx, st, None, basis="inferred",
                                   reason="path named in tool result, modified during the call")
@@ -489,13 +539,14 @@ class Tracker:
 
     # ------------------------------------------------------- consumed inputs
     def _record_consumed(self, tool: str, args: dict, result_text: str, status: str, cwd: Optional[str],
-                         tc_node: str, ctx: dict) -> list[str]:
+                         tc_node: str, ctx: dict, exclude: Optional[set] = None) -> list[str]:
         ids: list[str] = []
+        exclude = exclude or set()
 
         def read_file_node(p: str, basis: str = "observed", reason: Optional[str] = None) -> None:
             abs_path = resolve_path(p, cwd)
-            if not os.path.isfile(abs_path):
-                return
+            if abs_path in exclude or not os.path.isfile(abs_path):
+                return  # an output of this very call is not one of its inputs
             node = self._file_node(abs_path, consumed=True, **ctx)
             self.store.add_edge(tc_node, node["id"], "read", basis=basis, meta={"reason": reason} if reason else None, **ctx)
             if node["id"] not in ids:
@@ -543,9 +594,11 @@ class Tracker:
         elif tool in EXEC_TOOLS:
             text = _s(args.get("command") or args.get("code")) or ""
             for abs_path in existing_paths(find_path_candidates(text), args.get("workdir") or cwd):
-                read_file_node(abs_path, basis="observed", reason="named in the command")
+                if looks_like_credential(abs_path):
+                    continue  # named is not read: never open a key or .env on a guess
+                read_file_node(abs_path, basis="inferred", reason="named in the command")
             for url in find_urls(text):
-                read_url_node(url, basis="observed")
+                read_url_node(url, basis="inferred")  # named in the command; Hermes didn't say it was fetched
 
         # Generic: URLs and existing files anywhere in the arguments of any other tool
         # (browser tools, MCP tools, converters). Observed: the argument names them.
@@ -563,17 +616,28 @@ class Tracker:
 
     # ---------------------------------------------------------- produced files
     def _record_artifact(self, abs_path: str, tool: str, tc_node: str, ctx: dict, st: Optional[_TurnState],
-                         evidence_text: Optional[str], *, basis: str, reason: Optional[str] = None) -> None:
+                         evidence_text: Optional[str], *, basis: str, reason: Optional[str] = None,
+                         extra: Optional[dict] = None) -> None:
         base = os.path.basename(abs_path)
         if base in IGNORED_FILE_NAMES or base.endswith(IGNORED_FILE_SUFFIXES):
             return
         if any(part in IGNORED_DIRS for part in Path(abs_path).parts):
             return
+        if not os.path.isfile(abs_path):
+            return  # deleted or moved away by this call: nothing to give a receipt to
         node = self._file_node(abs_path, produced=True, **ctx, meta={"producer_tool": tool})
         nid = node["id"]
         new_version = self.store.add_version(nid, sha256=node.get("sha256"), size=node.get("size"),
                                              tool_call_id=ctx.get("tool_call_id"), turn_id=ctx.get("turn_id"))
-        self.store.add_edge(tc_node, nid, "wrote", basis=basis, meta={"reason": reason} if reason else None, **ctx)
+        if new_version:
+            # Sources describe the bytes on disk now. A rewrite starts from scratch; what the earlier
+            # version was made from stays in its own history, not in this version's receipt.
+            self.store.clear_edges(nid, "derived_from")
+        edge_meta = dict(extra or {})
+        if reason:
+            edge_meta["reason"] = reason
+        self.store.add_edge(tc_node, nid, "wrote", basis=basis, confidence=0.8 if basis == "inferred" else None,
+                            meta=edge_meta or None, **ctx)
         agent = f"agent:{ctx['session_id']}" if ctx.get("session_id") else None
         if agent:
             self.store.add_edge(nid, agent, "produced_by", basis="observed", **ctx)
@@ -594,24 +658,28 @@ class Tracker:
                 if sid_ in session_sources and sid_ != nid:
                     self.store.add_edge(nid, sid_, "derived_from", basis="evidenced", meta={"reason": "url appears in artifact"}, **ctx)
                     evidenced.add(sid_)
-            for src_id, src in session_sources.items():
-                if src.get("kind") != "file" or src_id == nid or not src.get("path"):
-                    continue
-                p = src["path"]
-                if p in text or (os.path.basename(p) and len(os.path.basename(p)) > 3 and os.path.basename(p) in text):
-                    self.store.add_edge(nid, src_id, "derived_from", basis="evidenced", meta={"reason": "path appears in artifact"}, **ctx)
-                    evidenced.add(src_id)
+            for src_id in self._files_named_in(text, session_sources, nid):
+                self.store.add_edge(nid, src_id, "derived_from", basis="evidenced", meta={"reason": "path appears in artifact"}, **ctx)
+                evidenced.add(src_id)
+            # Same bytes as another artifact: the file was moved or copied (``mv draft.md final.md``).
+            if new_version and node.get("sha256") and (node.get("size") or 0) > 0:
+                for twin in self.store.nodes_with_sha(node["sha256"], exclude=nid):
+                    if twin.get("produced") and twin["id"] not in evidenced:
+                        self.store.add_edge(nid, twin["id"], "derived_from", basis="evidenced",
+                                            meta={"reason": f"same bytes as {twin.get('label') or 'another artifact'} (moved or copied)"}, **ctx)
+                        evidenced.add(twin["id"])
 
         # Inferred: read earlier in this turn, then in the recent session window.
         if st is not None:
-            for src_id in st.consumed:
-                if src_id == nid or src_id in evidenced:
-                    continue
+            # newest reads first, bounded: a turn that read 400 files must not cost 400 edges per artifact
+            turn_cap = int(self.config.get("turn_max_inferred_sources") or 25)
+            recent = [x for x in reversed(st.consumed) if x != nid and x not in evidenced][:turn_cap]
+            for src_id in recent:
                 self.store.add_edge(nid, src_id, "derived_from", basis="inferred", confidence=0.6,
                                     meta={"reason": "read earlier in this turn"}, **ctx)
             window = self._session_window_sources(ctx.get("session_id"), ctx.get("turn_id"))
             for src_id in window:
-                if src_id == nid or src_id in evidenced or src_id in st.consumed:
+                if src_id == nid or src_id in evidenced or src_id in recent or src_id in st.consumed:
                     continue
                 self.store.add_edge(nid, src_id, "derived_from", basis="inferred", confidence=0.35,
                                     meta={"reason": "read earlier in this session"}, **ctx)
@@ -670,13 +738,16 @@ class Tracker:
                     if fn in IGNORED_FILE_NAMES:
                         continue
                     p = os.path.join(dirpath, fn)
+                    if looks_like_credential(p):
+                        continue  # never hash a key or .env just because it changed nearby
                     try:
                         stt = os.stat(p, follow_symlinks=False)
                     except OSError:
                         continue
                     if not os.path.isfile(p) or os.path.islink(p):
                         continue
-                    if stt.st_mtime >= threshold:
+                    # mtime for writes; ctime too, because a rename (``mv a b``) keeps the old mtime
+                    if stt.st_mtime >= threshold or stt.st_ctime >= threshold:
                         out.append(p)
         except OSError:
             return []
@@ -684,12 +755,55 @@ class Tracker:
         return out[:200]
 
     @staticmethod
-    def _v4a_paths(patch_text: str) -> list[str]:
+    def _v4a_written_paths(patch_text: str) -> list[str]:
+        """Files that exist after a V4A patch: Update/Add targets and Move destinations (Hermes's own
+        header grammar, ``tools/patch_parser.py``). Deleted files and move sources are not artifacts."""
         out: list[str] = []
+        gone: set[str] = set()
         for line in patch_text.splitlines():
-            m = re.match(r"^\*\*\* (?:Update|Add) File: (.+?)\s*$", line)
-            if m and m.group(1) not in out:
-                out.append(m.group(1).strip())
+            m = _V4A_FILE_HEADER.match(line)
+            if m:
+                op, path = m.group(1).lower(), m.group(2).strip()
+                if op == "delete":
+                    gone.add(path)
+                elif path not in out:
+                    out.append(path)
+                continue
+            m = _V4A_MOVE_HEADER.match(line)
+            if m:
+                src, dst = m.group(1).strip(), m.group(2).strip()
+                gone.add(src)
+                if dst not in out:
+                    out.append(dst)
+        return [p for p in out if p not in gone]
+
+    @staticmethod
+    def _files_named_in(text: str, sources: dict[str, dict], self_id: str) -> list[str]:
+        """Source files the artifact's text names: by full path, by a path suffix (``b/config.json``),
+        or by bare file name only when no other source shares that name."""
+        files = [(sid, n["path"]) for sid, n in sources.items()
+                 if n.get("kind") == "file" and sid != self_id and n.get("path")]
+        by_name: dict[str, list[tuple[str, str]]] = {}
+        for sid, p in files:
+            by_name.setdefault(os.path.basename(p), []).append((sid, p))
+        out: list[str] = []
+        for name, group in by_name.items():
+            if not name or len(name) <= 3:
+                continue
+            exact = [sid for sid, p in group if p in text]
+            if exact:
+                out.extend(exact)
+                continue
+            if name not in text:
+                continue
+            if len(group) == 1:
+                out.append(group[0][0])
+                continue
+            # Same name in several folders: only a longer path suffix in the text can tell them apart.
+            for sid, p in group:
+                parts = Path(p).parts
+                if any(os.path.join(*parts[-k:]) in text for k in range(2, min(len(parts), 4) + 1)):
+                    out.append(sid)
         return out
 
     def _paths_created_during(self, text: str, cwd: Optional[str], started: float) -> list[str]:
@@ -717,7 +831,7 @@ class Tracker:
         web = (data.get("data") or {}).get("web") if isinstance(data, dict) else None
         items = web if isinstance(web, list) else (data.get("results") if isinstance(data, dict) else None)
         for item in items or []:
-            if isinstance(item, dict) and isinstance(item.get("url"), str):
+            if isinstance(item, dict) and isinstance(item.get("url"), str) and item["url"].startswith(("http://", "https://")):
                 urls.append(item["url"])
         return urls[:25] or find_urls(text, limit=20)
 

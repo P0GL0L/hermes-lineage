@@ -96,11 +96,11 @@ def test_graph_receipt_and_sidecar(plugin, ctx, workspace, session_factory):
     assert (f"file:{chart}", "derived_from", "evidenced") in rels
     # observed: produced by this agent, in this turn
     assert (f"agent:{s.sid}", "produced_by", "observed") in rels
-    # the chart was produced by the terminal call (snapshot diff) — observed
+    # the chart was produced by the terminal call (working-tree scan) — inferred, and says why
     chart_node = store.find_file_node(str(chart))
     assert chart_node and chart_node["produced"] == 1
     writers = store.edges_to(chart_node["id"], "wrote")
-    assert writers and writers[0]["basis"] == "observed"
+    assert writers and writers[0]["basis"] == "inferred" and "working tree" in writers[0]["meta"]["reason"]
     tc = store.get_node(writers[0]["src"])
     assert tc["meta"]["tool"] == "terminal"
     # the terminal call read revenue.csv (named in the command) -> chart derived from csv (inferred this turn at least)

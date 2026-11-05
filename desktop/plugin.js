@@ -467,7 +467,7 @@ function Inspector({ graph, rootId, selectedId, onSelect, onChanged }) {
       h(
         Row,
         { label: 'url', mono: true },
-        h('button', { type: 'button', className: 'break-all text-left underline decoration-dotted hover:text-(--ui-accent)', onClick: () => OS && OS.openExternal && OS.openExternal(node.url) }, node.url),
+        h('button', { type: 'button', className: 'break-all text-left underline decoration-dotted hover:text-(--ui-accent)', onClick: () => { if (OS && OS.openExternal && /^https?:\/\//i.test(String(node.url))) OS.openExternal(node.url) } }, node.url),
         ' ',
         h(CopyChip, { text: node.url })
       ),
