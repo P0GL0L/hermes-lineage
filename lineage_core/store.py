@@ -82,6 +82,7 @@ CREATE INDEX IF NOT EXISTS nodes_kind ON nodes(kind, updated_at);
 CREATE INDEX IF NOT EXISTS nodes_path ON nodes(path);
 CREATE INDEX IF NOT EXISTS nodes_session ON nodes(session_id, updated_at);
 CREATE INDEX IF NOT EXISTS nodes_turn ON nodes(turn_id);
+CREATE INDEX IF NOT EXISTS nodes_sha ON nodes(sha256);
 CREATE TABLE IF NOT EXISTS edges (
     id INTEGER PRIMARY KEY,
     src TEXT NOT NULL,
