@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/NousResearch/hermes-agent/pull/149244"><img alt="Hermes plugin catalog PR" src="https://img.shields.io/badge/Hermes%20catalog-PR%20%23149244-5b8def"></a>
+  <a href="https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/lineage.yaml"><img alt="In the official Hermes plugin catalog" src="https://img.shields.io/badge/Hermes%20plugin%20catalog-listed-5b8def"></a>
   <img alt="Hermes ≥ 0.21.5" src="https://img.shields.io/badge/Hermes%20Agent-%E2%89%A5%200.21.5-3a3f4a">
   <img alt="hooks only" src="https://img.shields.io/badge/surface-hooks%20only%20%C2%B7%20no%20network-3a3f4a">
   <a href="https://github.com/P0GL0L/hermes-lineage/actions"><img alt="CI" src="https://github.com/P0GL0L/hermes-lineage/actions/workflows/ci.yml/badge.svg"></a>
@@ -20,6 +20,8 @@
 hermes plugins install lineage
 hermes plugins enable lineage
 ```
+
+<p align="center"><sub>Listed in the <a href="https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/lineage.yaml">official Hermes plugin catalog</a>, reviewed and merged by Nous Research (<a href="https://github.com/NousResearch/hermes-agent/pull/149244">#149244</a>).</sub></p>
 
 ---
 
@@ -189,7 +191,10 @@ Hooks only (`post_tool_call`, `pre_llm_call`, `post_llm_call`, `post_api_request
 
 ## Validated
 
-`hermes plugins validate` on Hermes Agent v0.22.7 (macOS): every check passes — manifest, `requires_hermes`, config schema, loadable, capability probe, declared tools/hooks/middleware, built-in collisions, security scan *safe*, no core override, desktop surface inside the SDK. The transcript in *Sixty seconds* is from a live task on that install. Before that, an independent review against the Hermes source found eight defects (including the `pre_tool_call` risk and secret-bearing URL ids); all are fixed and covered by tests.
+- **Catalog review.** Nous Research reviewed the entry and its disclosure and merged it into the official catalog ([#149244](https://github.com/NousResearch/hermes-agent/pull/149244)). The review's wording surfaced that `verify --refetch` followed redirects with only the first URL checked; 0.1.5 checks every hop.
+- **On a real install.** `hermes plugins validate` on Hermes Agent v0.22.7 (macOS): every check passes — manifest, `requires_hermes`, config schema, loadable, capability probe, declared tools/hooks/middleware, built-in collisions, security scan *safe*, no core override, desktop surface inside the SDK. The transcript in *Sixty seconds* is from a live task on that install, and the Desktop page was driven end to end there while recording the demo — which is how the 0.1.4 staleness bug was found.
+- **In CI, on every push.** Python 3.11–3.13, the Desktop half under jsdom, and the catalog's own admission check (`hermes plugins validate`) against current Hermes main.
+- **Reviewed.** An independent review against the Hermes source found eight defects before the first release (including the `pre_tool_call` risk and secret-bearing URL ids); all are fixed and covered by tests. Every bug found since ships with a test that fails on the old code.
 
 ## Development
 
