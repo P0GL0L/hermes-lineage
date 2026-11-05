@@ -4,8 +4,8 @@ description: >-
   Provenance for everything the agent produces. Every file Hermes writes gets a receipt —
   what it was made from (files read, pages fetched, searches run), by which tool call, model
   and agent, with SHA-256 hashes — and a Desktop page draws the graph back to the sources.
-  Observed, evidenced and inferred links are labelled, never blended. Hooks only; no tools,
-  no middleware, no network.
+  Observed, evidenced and inferred links are labelled, never blended. Observer hooks only (no
+  pre_tool_call); no tools, no middleware, no network.
 author: Charles Bonetti (ASV Labs)
 license: MIT
 homepage: https://github.com/P0GL0L/hermes-lineage
@@ -18,7 +18,6 @@ provides_hooks:
   - post_api_request
   - api_request_error
   - post_auxiliary_call
-  - pre_tool_call
   - post_tool_call
   - subagent_start
   - subagent_stop
@@ -37,7 +36,10 @@ config_schema:
     description: Record auxiliary model calls (compression, titles, vision) as nodes in the turn (default true).
   snapshot_max_files:
     type: int
-    description: Largest working tree lineage will scan before and after a terminal/execute_code call to attribute files it produced (default 6000; larger trees are skipped).
+    description: Largest working tree lineage will scan after a terminal/execute_code call to attribute files it produced (default 6000; larger trees are skipped).
+  max_artifacts_per_call:
+    type: int
+    description: Most files attributed to one tool call (default 50; the rest are counted, not recorded).
   session_window_turns:
     type: int
     description: How many earlier turns of a session count as inferred sources for a new artifact (default 3; 0 disables session-level inference).

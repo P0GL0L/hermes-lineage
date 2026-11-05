@@ -1,7 +1,8 @@
 """lineage — provenance receipts and a graph for everything Hermes produces.
 
-Hooks only. No tools, no middleware, no network at runtime (``verify --refetch``
-is the one explicit exception and is only ever run by you). See README.md.
+Hooks only, observers only. No tools, no middleware, no ``pre_tool_call`` (that hook is
+fail-closed in Hermes: a slow callback would block the agent), no network at runtime
+(``verify --refetch`` is the one explicit exception and only runs when you ask). See README.md.
 """
 
 from __future__ import annotations
@@ -23,7 +24,6 @@ HOOKS = (
     "post_api_request",
     "api_request_error",
     "post_auxiliary_call",
-    "pre_tool_call",
     "post_tool_call",
     "subagent_start",
     "subagent_stop",
@@ -34,6 +34,7 @@ CONFIG_KEYS = {
     "store_previews": bool,
     "track_aux_calls": bool,
     "snapshot_max_files": int,
+    "max_artifacts_per_call": int,
     "session_window_turns": int,
 }
 

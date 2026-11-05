@@ -152,8 +152,8 @@ def _agent_chain(store: Store, session_id: Optional[str]) -> list[dict]:
 def build_receipt(store: Store, ref: str, *, include_signature: bool = True, data_dir: Optional[Path] = None) -> Optional[dict]:
     """Assemble the receipt for an artifact (node id, absolute path, or basename)."""
     node = store.resolve(ref)
-    if not node or node.get("kind") != "file":
-        return None
+    if not node or node.get("kind") != "file" or not node.get("produced"):
+        return None  # receipts are for files the agent made, never for files it merely read
     nid = node["id"]
     path = node.get("path") or ""
 
@@ -286,14 +286,46 @@ def read_sidecar(artifact_path: str) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------- verification
+def _url_is_safe(url: str) -> bool:
+    """Public hosts only. Uses Hermes's own SSRF check when available; otherwise refuses loopback,
+    private, link-local (cloud metadata) and unresolvable hosts itself."""
+    try:
+        from tools.url_safety import is_safe_url  # documented public helper
+
+        return bool(is_safe_url(url))
+    except Exception:
+        pass
+    import ipaddress
+    import socket
+
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return False
+    try:
+        infos = socket.getaddrinfo(parts.hostname, parts.port or (443 if parts.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, OSError, UnicodeError):
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            return False
+    return True
+
+
 def _fetch_url_fingerprint(url: str, timeout: float = 8.0) -> dict:
-    """Reachability and a content fingerprint for *url* (bounded to 1 MiB). Network only on request."""
+    """Reachability and a content fingerprint for *url* (bounded to 1 MiB). Network only on request,
+    and only to public hosts."""
     import urllib.error
     import urllib.request
 
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
         return {"status": "skipped", "reason": "not http(s)"}
+    if not _url_is_safe(url):
+        return {"status": "refused", "reason": "not a public host"}
     req = urllib.request.Request(url, headers={"User-Agent": f"hermes-lineage/{__version__} (+verify)"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - scheme checked above
@@ -318,7 +350,7 @@ def verify(store: Store, ref: str, *, refetch: bool = False, data_dir: Optional[
       so URL change detection starts from the first verify, and says so.)
     """
     node = store.resolve(ref)
-    if not node or node.get("kind") != "file":
+    if not node or node.get("kind") != "file" or not node.get("produced"):
         return None
     path = node.get("path") or ""
     now_sha, now_size = sha256_file(path)

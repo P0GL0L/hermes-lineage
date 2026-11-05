@@ -21,10 +21,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
-from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
@@ -60,8 +60,10 @@ IGNORED_FILE_NAMES = {".DS_Store", "Thumbs.db"}
 
 DEFAULTS: dict[str, Any] = {
     "snapshot_max_files": 6000,
-    "snapshot_max_seconds": 0.6,
+    "snapshot_max_seconds": 0.5,
+    "max_artifacts_per_call": 50,
     "evidence_max_bytes": 2 * 1024 * 1024,
+    "evidence_scan_bytes": 512 * 1024,
     "session_window_turns": 3,
     "session_window_max_sources": 25,
     "sidecar": False,
@@ -99,14 +101,13 @@ def _safe(fn: Callable) -> Callable:
 
 
 class _TurnState:
-    __slots__ = ("session_id", "started", "consumed", "produced", "last_api_request_id")
+    __slots__ = ("session_id", "started", "consumed", "produced")
 
     def __init__(self, session_id: str):
         self.session_id = session_id
         self.started = _now()
         self.consumed: list[str] = []  # node ids read in this turn, in order
         self.produced: list[str] = []  # artifact node ids written in this turn
-        self.last_api_request_id: Optional[str] = None
 
 
 class Tracker:
@@ -127,9 +128,6 @@ class Tracker:
         self._turns: dict[str, _TurnState] = {}
         self._session_cwd: dict[str, str] = {}
         self._session_turn: dict[str, str] = {}  # session -> current turn id
-        self._pending: dict[str, dict] = {}  # tool_call_id -> pre-call record
-        self._pending_by_key: dict[tuple, deque] = defaultdict(deque)
-        self._snapshots: dict[str, tuple[str, dict]] = {}  # tool_call_id -> (workdir, snapshot)
 
     # ----------------------------------------------------------------- helpers
     def emit(self, event: str, payload: dict) -> None:
@@ -311,30 +309,13 @@ class Tracker:
                     log.debug("sidecar failed for %s: %s", nid, exc)
         self.emit("turn.closed", {"session_id": sid, "turn_id": tid, "artifacts": produced, "cited": cited})
         with self._lock:
-            # Keep the state around briefly for late post_tool_call events, then drop it.
-            self._turns.pop(tid, None) if len(self._turns) > 64 else None
+            # Keep recent turn state around for late post_tool_call events; trim the oldest beyond 64.
+            if len(self._turns) > 64:
+                for old_id in sorted(self._turns, key=lambda k: self._turns[k].started)[:32]:
+                    self._turns.pop(old_id, None)
+
 
     # ------------------------------------------------------------ model calls
-    @_safe
-    def pre_api_request(self, **kw) -> None:
-        sid, tid, rid = _s(kw.get("session_id")), _s(kw.get("turn_id")), _s(kw.get("api_request_id"))
-        if not rid:
-            return
-        st = self._turn(tid, sid)
-        if st is not None:
-            st.last_api_request_id = rid
-        self.store.upsert_node(
-            f"mc:{rid}", "model_call", label=_s(kw.get("model")) or "model", session_id=sid, turn_id=tid,
-            meta={
-                "model": _s(kw.get("model")), "provider": _s(kw.get("provider")), "base_url": _s(kw.get("base_url")),
-                "api_mode": _s(kw.get("api_mode")), "api_call_count": kw.get("api_call_count"),
-                "message_count": kw.get("message_count"), "approx_input_tokens": kw.get("approx_input_tokens"),
-                "started_at": kw.get("started_at") or _now(), "status": "started",
-            },
-        )
-        if tid:
-            self.store.add_edge(f"mc:{rid}", f"turn:{tid}", "in_turn", basis="observed", turn_id=tid)
-
     @_safe
     def post_api_request(self, **kw) -> None:
         rid = _s(kw.get("api_request_id"))
@@ -417,56 +398,29 @@ class Tracker:
         self.store.end_session(child)
 
     # -------------------------------------------------------------- tool calls
-    @_safe
-    def pre_tool_call(self, **kw) -> None:
-        tool = _s(kw.get("tool_name")) or "tool"
-        sid, tid = _s(kw.get("session_id")), _s(kw.get("turn_id"))
-        args = kw.get("args") if isinstance(kw.get("args"), dict) else {}
-        tcid = _s(kw.get("tool_call_id")) or f"anon-{uuid.uuid4().hex[:12]}"
-        st = self._turn(tid, sid)
-        rec = {
-            "tool": tool, "session_id": sid, "turn_id": tid or (self._session_turn.get(sid) if sid else None),
-            "api_request_id": _s(kw.get("api_request_id")) or (st.last_api_request_id if st else None),
-            "started": _now(), "args": args,
-        }
-        with self._lock:
-            self._pending[tcid] = rec
-            self._pending_by_key[(sid, tool)].append(tcid)
-        if tool in EXEC_TOOLS:
-            workdir = _s(args.get("workdir")) or self._cwd(sid)
-            if workdir:
-                snap = self._snapshot(workdir)
-                if snap is not None:
-                    self._snapshots[tcid] = (workdir, snap)
-
+    # lineage deliberately registers no pre_tool_call: in Hermes that hook is fail-closed (a slow or
+    # stuck callback blocks the agent's tool call). Everything is reconstructed after the fact from
+    # post_tool_call, which carries duration_ms and api_request_id.
     @_safe
     def post_tool_call(self, **kw) -> None:
         tool = _s(kw.get("tool_name")) or "tool"
         sid, tid = _s(kw.get("session_id")), _s(kw.get("turn_id"))
         args = kw.get("args") if isinstance(kw.get("args"), dict) else {}
-        tcid = _s(kw.get("tool_call_id"))
-        with self._lock:
-            if tcid and tcid in self._pending:
-                rec = self._pending.pop(tcid)
-                try:
-                    self._pending_by_key[(sid, tool)].remove(tcid)
-                except ValueError:
-                    pass
-            else:
-                q = self._pending_by_key.get((sid, tool))
-                anon = q.popleft() if q else None
-                rec = self._pending.pop(anon, None) if anon else None
-                tcid = tcid or anon or f"anon-{uuid.uuid4().hex[:12]}"
-        rec = rec or {"tool": tool, "session_id": sid, "turn_id": tid, "api_request_id": _s(kw.get("api_request_id")),
-                      "started": _now(), "args": args}
-        tid = tid or rec.get("turn_id")
+        tcid = _s(kw.get("tool_call_id")) or f"anon-{uuid.uuid4().hex[:12]}"
+        duration = kw.get("duration_ms")
+        ended = _now()
+        try:
+            started = ended - (float(duration) / 1000.0 if duration is not None else 0.0)
+        except (TypeError, ValueError):
+            started = ended
+        rec = {"tool": tool, "session_id": sid, "turn_id": tid, "api_request_id": _s(kw.get("api_request_id")),
+               "started": started, "args": args}
         st = self._turn(tid, sid)
         status = _s(kw.get("status")) or "ok"
         result = kw.get("result")
         result_text = result if isinstance(result, str) else (json.dumps(result, default=str) if result is not None else "")
-        duration = kw.get("duration_ms")
         if duration is None:
-            duration = int((_now() - rec["started"]) * 1000)
+            duration = 0
         tc_node = f"tc:{tcid}"
         label = self._tool_label(tool, args)
         meta = {
@@ -490,6 +444,10 @@ class Tracker:
         cwd = self._cwd(sid)
         ctx = dict(session_id=sid, turn_id=tid, tool_call_id=tcid)
 
+        # Only a call that completed read or wrote anything: a blocked or failed tool touched nothing.
+        if status != "ok":
+            return
+
         # 1. What did this call read?
         consumed_ids = self._record_consumed(tool, args, result_text, status, cwd, tc_node, ctx)
         if st is not None:
@@ -497,21 +455,20 @@ class Tracker:
                 if nid not in st.consumed:
                     st.consumed.append(nid)
 
-        if status != "ok":
-            self._snapshots.pop(tcid, None)
-            return
-
         # 2. What did this call produce?
         produced: list[tuple[str, Optional[str]]] = []  # (abs_path, evidence_text)
         if tool == "write_file" and args.get("path"):
             produced.append((resolve_path(str(args["path"]), cwd), args.get("content") if isinstance(args.get("content"), str) else None))
-        elif tool == "patch" and args.get("path"):
-            produced.append((resolve_path(str(args["path"]), cwd), args.get("new_string") if isinstance(args.get("new_string"), str) else None))
+        elif tool == "patch":
+            if args.get("path"):
+                produced.append((resolve_path(str(args["path"]), cwd), args.get("new_string") if isinstance(args.get("new_string"), str) else None))
+            elif isinstance(args.get("patch"), str):  # V4A multi-file patch (OpenAI-family models)
+                for rel in self._v4a_paths(args["patch"]):
+                    produced.append((resolve_path(rel, cwd), args["patch"]))
         elif tool in EXEC_TOOLS:
-            snap = self._snapshots.pop(tcid, None)
-            if snap is not None:
-                workdir, before = snap
-                for changed in self._diff_snapshot(workdir, before):
+            workdir = _s(args.get("workdir")) or cwd
+            if workdir:
+                for changed in self._modified_since(workdir, started):
                     produced.append((changed, None))
         # Any tool may announce a file it just made (image_generate, converters, MCP tools): a path in the
         # result that exists and was modified during the call counts, labelled as inferred.
@@ -519,11 +476,14 @@ class Tracker:
         known = {p for p, _ in produced}
         inferred_outputs = [p for p in result_new if p not in known]
 
-        for abs_path, evidence in produced:
+        cap = int(self.config.get("max_artifacts_per_call") or 50)
+        for abs_path, evidence in produced[:cap]:
             self._record_artifact(abs_path, tool, tc_node, ctx, st, evidence, basis="observed")
-        for abs_path in inferred_outputs:
+        for abs_path in inferred_outputs[: max(0, cap - len(produced))]:
             self._record_artifact(abs_path, tool, tc_node, ctx, st, None, basis="inferred",
                                   reason="path named in tool result, modified during the call")
+        if len(produced) > cap:
+            self.store.upsert_node(tc_node, "tool_call", meta={"artifacts_truncated": len(produced) - cap})
 
     # ------------------------------------------------------- consumed inputs
     def _record_consumed(self, tool: str, args: dict, result_text: str, status: str, cwd: Optional[str],
@@ -560,7 +520,7 @@ class Tracker:
                 self.store.add_edge(tc_node, qid, "read", basis="observed", **ctx)
                 ids.append(qid)
                 for url in self._urls_from_search_result(result_text):
-                    node = self._url_node(url, consumed=False, **ctx, meta={"found_by": q[:120]})
+                    node = self._url_node(url, consumed=False, **ctx, meta={"found_by": preview(q, 120)})
                     self.store.add_edge(qid, node["id"], "returned", basis="observed", **ctx)
         elif tool in {"web_extract", "web_fetch", "fetch_url"}:
             urls = args.get("urls") or args.get("url") or []
@@ -622,6 +582,8 @@ class Tracker:
         text = evidence_text
         if text is None:
             text = self._read_text_bounded(abs_path)
+        if text and len(text) > int(self.config["evidence_scan_bytes"]):
+            text = text[: int(self.config["evidence_scan_bytes"])]
         session_sources = self._session_source_index(ctx.get("session_id"))
         evidenced: set[str] = set()
         if text:
@@ -684,19 +646,25 @@ class Tracker:
                 break
         return out
 
-    # ------------------------------------------------------------- snapshots
-    def _snapshot(self, workdir: str) -> Optional[dict[str, tuple[int, int]]]:
-        """``{abs path: (mtime_ns, size)}`` for regular files under *workdir*, or None if too big/slow."""
+    # ------------------------------------------------------- modified files
+    def _modified_since(self, workdir: str, started: float) -> list[str]:
+        """Regular files under *workdir* whose mtime falls inside the call window, bounded by
+        ``snapshot_max_files`` and ``snapshot_max_seconds``; a tree too big or too slow yields []."""
         root = Path(workdir)
         if not root.is_dir():
-            return None
+            return []
         limit = int(self.config["snapshot_max_files"])
         deadline = _now() + float(self.config["snapshot_max_seconds"])
-        out: dict[str, tuple[int, int]] = {}
+        threshold = started - 0.1  # a little slack for filesystem clock granularity
+        out: list[str] = []
+        seen = 0
         try:
             for dirpath, dirnames, filenames in os.walk(root):
                 dirnames[:] = [d for d in dirnames if d not in IGNORED_DIRS and not d.startswith(".")]
                 for fn in filenames:
+                    seen += 1
+                    if seen > limit or _now() > deadline:
+                        return []
                     if fn in IGNORED_FILE_NAMES:
                         continue
                     p = os.path.join(dirpath, fn)
@@ -706,20 +674,21 @@ class Tracker:
                         continue
                     if not os.path.isfile(p) or os.path.islink(p):
                         continue
-                    out[p] = (stt.st_mtime_ns, stt.st_size)
-                    if len(out) > limit or _now() > deadline:
-                        return None
+                    if stt.st_mtime >= threshold:
+                        out.append(p)
         except OSError:
-            return None
-        return out
-
-    def _diff_snapshot(self, workdir: str, before: dict[str, tuple[int, int]]) -> list[str]:
-        after = self._snapshot(workdir)
-        if after is None:
             return []
-        changed = [p for p, sig in after.items() if before.get(p) != sig]
-        changed.sort()
-        return changed[:200]
+        out.sort()
+        return out[:200]
+
+    @staticmethod
+    def _v4a_paths(patch_text: str) -> list[str]:
+        out: list[str] = []
+        for line in patch_text.splitlines():
+            m = re.match(r"^\*\*\* (?:Update|Add) File: (.+?)\s*$", line)
+            if m and m.group(1) not in out:
+                out.append(m.group(1).strip())
+        return out
 
     def _paths_created_during(self, text: str, cwd: Optional[str], started: float) -> list[str]:
         out: list[str] = []

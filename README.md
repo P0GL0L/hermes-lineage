@@ -14,7 +14,7 @@ Every file Hermes writes gets a receipt: what it was made from (files read, page
 | **◉ evidenced** | The artifact's own bytes name the source — a URL that was fetched this session, or the path of a file that was read. | solid line |
 | **○ inferred** | The source was read earlier in the same turn (confidence 0.6) or in a recent turn of the session (0.35). | dashed line |
 
-Hooks only. No tools, no middleware, no LLM calls, no network. A provenance recorder that can interrupt the agent is worse than no recorder, so every callback swallows its own errors.
+Hooks only — and observer hooks only: lineage does not register `pre_tool_call`, which Hermes treats as fail-closed (a slow callback would block the agent's tool call). No tools, no middleware, no LLM calls, no network. A provenance recorder that can interrupt the agent is worse than no recorder, so every callback swallows its own errors.
 
 ```
 hermes plugins install lineage
@@ -75,7 +75,7 @@ The signature is from a per-install random key (`plugin-data/lineage/install.key
 
 ```
 hermes lineage verify q3-note.md               # file + file sources against recorded hashes
-hermes lineage verify q3-note.md --refetch     # also re-fetch URL sources (the only network lineage ever does)
+hermes lineage verify q3-note.md --refetch     # also re-fetch URL sources (the only network lineage ever does; public hosts only)
 ```
 
 Verdicts: **fresh** (nothing moved), **stale** (a source changed since the artifact was made), **modified** (the artifact itself changed), **missing**. The Desktop list marks each artifact with its last verdict.
@@ -97,16 +97,16 @@ hermes lineage list | sessions | stats | prune --days 90 --yes
 
 ## How it works
 
-lineage registers eleven observer hooks (`pre/post_tool_call`, `pre/post_llm_call`, `post_api_request`, `api_request_error`, `post_auxiliary_call`, `subagent_start/stop`, `on_session_start/end`) and writes a graph to SQLite at `<HERMES_HOME>/plugin-data/lineage/lineage.db`.
+lineage registers ten observer hooks (`post_tool_call`, `pre/post_llm_call`, `post_api_request`, `api_request_error`, `post_auxiliary_call`, `subagent_start/stop`, `on_session_start/end`) and writes a graph to SQLite at `<HERMES_HOME>/plugin-data/lineage/lineage.db`.
 
-* **Files the agent writes** — `write_file` and `patch` are observed directly. For `terminal` and `execute_code`, lineage snapshots the working tree (mtime + size, up to `snapshot_max_files`, bounded to `snapshot_max_seconds`) before the call and diffs after it, so `python report.py > out.csv` attributes `out.csv` to that command. Any other tool whose result names a path that exists and was modified during the call (image generators, converters, MCP tools) gets an *inferred* `wrote` edge.
+* **Files the agent writes** — `write_file` and `patch` (including V4A multi-file patches) are observed directly. For `terminal` and `execute_code`, lineage walks the working tree once after the call (up to `snapshot_max_files`, bounded to `snapshot_max_seconds`) and attributes every regular file whose mtime falls inside the call's window, so `python report.py > out.csv` attributes `out.csv` to that command. At most `max_artifacts_per_call` (50) files per call; a bigger write is recorded as truncated. Any other tool whose result names a path that exists and was modified during the call (image generators, converters, MCP tools) gets an *inferred* `wrote` edge.
 * **Sources** — `read_file`, `web_search` (the query, and the URLs it returned), `web_extract` (each URL, with a hash of the extracted content), `skill_view`, paths and URLs named in a shell command or code, and paths/URLs in the arguments of any other tool.
 * **Evidence** — when an artifact is written, its text (bounded to `evidence_max_bytes`) is scanned for URLs and file paths that match sources of this session; matches become *evidenced* edges. Everything read earlier in the turn becomes an *inferred* edge at 0.6; the last `session_window_turns` turns at 0.35. An earlier artifact that feeds a later one shows up as a `parent`.
-* **Model calls** — `pre_tool_call` carries `api_request_id`, so the model request that issued each tool call is an *observed* `invoked` edge, with model, provider and usage from `post_api_request`.
+* **Model calls** — `post_tool_call` carries `api_request_id`, so the model request that issued each tool call is an *observed* `invoked` edge, with model, provider and usage from `post_api_request`.
 * **Agents** — `subagent_start/stop` link child sessions to the parent session and turn; receipts carry the whole chain.
 * **The reply** — when a turn ends, URLs and files named in the final answer get `cited_in_reply` edges, and the receipt says whether the artifact was cited.
 
-Everything stored is bounded and redacted: tool arguments keep their shape, long values become `{"$preview", "$chars"}`, and anything credential-shaped (vendor key prefixes, `token=`, `Bearer …`, PEM blocks, `FOO_KEY=…` in commands, `user:pass@` in URLs) is masked before it reaches disk. `store_previews: false` keeps ids and hashes only.
+Everything stored is bounded and redacted: tool arguments keep their shape, long values become `{"$preview", "$chars"}`, and anything credential-shaped (vendor key prefixes, `token=`, `Bearer …`, PEM blocks, `FOO_KEY=…` in commands) is masked before it reaches disk. URL nodes drop `user:pass@` and mask credential-shaped query values (`?token=`, `?key=`, `?sig=`…) in the id itself, so a secret-bearing URL never becomes a node. A blocked or failed tool call records nothing it would have read or written. `store_previews: false` keeps ids and hashes only.
 
 ## Configuration
 
@@ -121,7 +121,7 @@ plugins:
         sidecar: false            # write <file>.receipt.json beside every artifact when its turn ends
         store_previews: true      # short redacted previews of prompts, args and results (false = ids and hashes only)
         track_aux_calls: true     # record compression/title/vision model calls as nodes in the turn
-        snapshot_max_files: 6000  # largest working tree scanned around a terminal/execute_code call
+        snapshot_max_files: 6000  # largest working tree scanned after a terminal/execute_code call
         session_window_turns: 3   # earlier turns that count as inferred sources (0 disables)
 ```
 
@@ -133,18 +133,18 @@ The unified package ships `desktop/plugin.js` (SDK only: `@hermes/plugin-sdk` an
 
 * lineage sees what Hermes's hooks report. A file written by a background process that outlives the tool call, or by anything outside Hermes, is not attributed.
 * *Inferred* means inferred. A dashed edge says "read earlier", not "used". The receipt's `basis` and `confidence` fields exist so a reader can discount them.
-* Working trees larger than `snapshot_max_files` (or slower than `snapshot_max_seconds` to walk) are not snapshotted; `write_file`/`patch` attribution still works there.
+* Working trees larger than `snapshot_max_files` (or slower than `snapshot_max_seconds` to walk) are not scanned after terminal calls; `write_file`/`patch` attribution still works there. A file another process modifies during a terminal call's window can be attributed to that call.
 * URL content hashes are of Hermes's extracted text; raw re-fetches establish their own baseline (see Verify).
 * The signature proves which install issued a receipt, nothing more.
 
 ## Disclosure
 
-Hooks only (`pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `post_api_request`, `api_request_error`, `post_auxiliary_call`, `subagent_start`, `subagent_stop`, `on_session_start`, `on_session_end`); no tools, no middleware, no LLM calls, no credentials. Runs no commands. Reads files the agent wrote (to hash them and scan their text for sources, bounded to 2 MB) and stats the working tree around `terminal`/`execute_code` calls. Writes only under `<HERMES_HOME>/plugin-data/lineage/` (SQLite store, `install.key`) and, on request or with `sidecar: true`, `<file>.receipt.json` beside artifacts. Stores redacted, bounded previews of prompts, tool arguments and results (`store_previews: false` turns previews off). Network only when you run `verify --refetch` or press *Verify + refetch URLs*, and then only `GET` to the recorded source URLs. No telemetry.
+Hooks only (`post_tool_call`, `pre_llm_call`, `post_llm_call`, `post_api_request`, `api_request_error`, `post_auxiliary_call`, `subagent_start`, `subagent_stop`, `on_session_start`, `on_session_end`); no tools, no middleware, no LLM calls, no credentials. Runs no commands. Reads files the agent wrote (to hash them, up to 32 MB, and scan their text for sources, up to 512 KB) and stats the working tree once after `terminal`/`execute_code` calls (bounded by file count and time). Receipts and verify apply only to files the agent produced, never to files it only read. Writes only under `<HERMES_HOME>/plugin-data/lineage/` (SQLite store, `install.key`) and, on request or with `sidecar: true`, `<file>.receipt.json` beside artifacts. Stores redacted, bounded previews of prompts, tool arguments and results (`store_previews: false` turns previews off). Network only when you run `verify --refetch` or press *Verify + refetch URLs*, and then only `GET` to the recorded source URLs on public hosts (loopback, private and link-local addresses are refused, through Hermes's own `is_safe_url` when available). No telemetry.
 
 ## Development
 
 ```
-python -m pytest -q tests          # 16 tests: tracker, receipts, redaction, CLI, slash command, API
+python -m pytest -q tests          # 17 tests: tracker, receipts, redaction, CLI, slash command, API, review regressions
 cd tests-js && npm install && npm test   # Desktop half under jsdom against Python-generated fixtures
 hermes plugins validate .          # the catalog admission checks
 ```

@@ -13,7 +13,7 @@ git clone https://github.com/P0GL0L/hermes-lineage ~/src/hermes-lineage
 ln -s ~/src/hermes-lineage ~/.hermes/plugins/lineage
 hermes plugins validate ~/src/hermes-lineage      # PASS on every check; read any 'caution' line
 hermes plugins enable lineage                     # answers the consent prompt (no capabilities declared)
-hermes plugins list | grep lineage                # enabled, 11 hooks, 1 command
+hermes plugins list | grep lineage                # enabled, 10 hooks, 1 command
 
 # 2. Restart the gateway so dashboard/plugin_api.py mounts
 hermes gateway restart   # or quit + reopen Hermes Desktop
@@ -47,9 +47,9 @@ hermes lineage show planet.md       # parent facts.md; chain shows the subagent,
 |---|---|
 | `validate` fails on *declared hooks* | the hook list in `plugin.yaml` must equal `HOOKS` in `__init__.py` (the tests assert this) |
 | `/api/plugins/lineage/*` → 404 | plugin not in `plugins.enabled`, or the gateway was not restarted after enabling |
-| graph has tool calls but no sources for a `terminal` write | the working tree is larger than `snapshot_max_files` (6000) or slower than 0.6 s to walk — raise the setting or run from a smaller directory |
+| a `terminal` write shows no artifact | the working tree is larger than `snapshot_max_files` (6000) or slower than 0.5 s to walk — raise the setting or run from a smaller directory |
 | `written by terminal` missing for a file a script made | the file sits in an ignored directory (`.git`, `node_modules`, `dist`, `build`, …) or has an ignored suffix (`.pyc`, `.lock`, `.tmp`) |
-| `api_request_id` absent on tool calls (no "via model" annotation) | the provider adapter did not supply it; lineage falls back to the latest `post_api_request` in the turn |
+| `api_request_id` absent on tool calls (no "via model" annotation) | the provider adapter did not supply it on `post_tool_call`; the tool call still links to its turn |
 | Desktop half says *unavailable (remote backend)* | the agent half is on a remote host; install the Desktop half from Git with the Desktop target checked |
 
 ## Hook payload fields lineage reads

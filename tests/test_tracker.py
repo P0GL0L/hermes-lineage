@@ -16,6 +16,7 @@ def research_task(session, ws, *, run_terminal=True):
     """search -> extract two pages -> read a CSV -> run a script that writes a chart -> write the report."""
     csv = ws / "revenue.csv"
     csv.write_text("quarter,revenue\nQ1,10\nQ2,12\nQ3,15\n")
+    time.sleep(0.15)  # the CSV predates the turn; keep it outside the terminal call's mtime window
     session.start_turn("Write a short Q3 revenue note with a chart, grounded in two public sources.")
     rid = session.model_call()
     session.tool("web_search", {"query": "Q3 2026 SaaS revenue growth benchmarks"},
@@ -263,3 +264,41 @@ def test_prune_and_stats(plugin, ctx, workspace, session_factory):
     assert stats["counts"]["artifacts"] == 1 and stats["counts"]["edges"] > 5
     removed = store.prune(time.time() + 1)
     assert removed["sessions"] == 1 and store.stats()["counts"]["artifacts"] == 0
+
+
+def test_review_fixes(plugin, ctx, workspace, session_factory):
+    """Findings from the independent review: URL secrets, V4A patches, produced-only receipts, safe refetch."""
+    hashing = _mod(plugin, "hashing")
+    receipt_mod = _mod(plugin, "receipt")
+    # credentials never reach a URL node id
+    norm = hashing.normalize_url("https://user:p4ss@Example.com/a/?token=abcdef123456&page=2#frag")
+    assert "p4ss" not in norm and "user" not in norm and "abcdef123456" not in norm and "page=2" in norm
+    assert norm.startswith("https://example.com/a?")
+    # refetch refuses non-public hosts even without Hermes's helper
+    for bad in ("http://127.0.0.1:8642/api", "http://169.254.169.254/latest/meta-data", "http://localhost/x", "ftp://example.com/x"):
+        assert receipt_mod._url_is_safe(bad) is False
+    assert receipt_mod._fetch_url_fingerprint("http://169.254.169.254/latest")["status"] == "refused"
+
+    s = session_factory()
+    s.start_turn("patch two files, V4A style")
+    s.model_call()
+    a, b = workspace / "a.py", workspace / "b.py"
+    patch = "*** Begin Patch\n*** Update File: a.py\n@@\n-x\n+y\n*** Add File: b.py\n+print(1)\n*** End Patch\n"
+    s.tool("patch", {"mode": "patch", "patch": patch}, "ok", during=lambda: (a.write_text("y\n"), b.write_text("print(1)\n")))
+    # a blocked call records nothing it would have read
+    s.tool("read_file", {"path": "a.py"}, "blocked", status="blocked")
+    s.end_turn("done")
+    store = plugin.get_tracker().store
+    assert store.find_file_node(str(a))["produced"] == 1 and store.find_file_node(str(b))["produced"] == 1
+    assert not store.edges_to(f"file:{a}", "read")
+    # a file that was only read gets no receipt
+    s.start_turn("read only")
+    s.model_call()
+    src = workspace / "input.txt"
+    src.write_text("hello")
+    s.tool("read_file", {"path": "input.txt"}, "hello")
+    s.end_turn("read it")
+    assert receipt_mod.build_receipt(store, str(src)) is None
+    assert receipt_mod.write_sidecar(store, str(src)) is None
+    assert not (workspace / "input.txt.receipt.json").exists()
+    assert "pre_tool_call" not in plugin.HOOKS

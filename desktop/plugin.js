@@ -61,7 +61,7 @@ function fmtBytes(n) {
 function fmtTs(ts) {
   if (!ts) return ''
   try {
-    return relativeTime(new Date(ts * 1000))
+    return relativeTime(ts * 1000)
   } catch {
     return new Date(ts * 1000).toLocaleTimeString()
   }

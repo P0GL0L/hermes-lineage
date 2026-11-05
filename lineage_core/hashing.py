@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable, Iterator
 from urllib.parse import urlsplit, urlunsplit
 
-MAX_HASH_BYTES = 256 * 1024 * 1024  # refuse to hash files above this; record size only
+MAX_HASH_BYTES = 32 * 1024 * 1024  # refuse to hash files above this; record size only (keeps hooks fast)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -39,21 +39,38 @@ def sha256_file(path: str | os.PathLike[str]) -> tuple[str | None, int | None]:
     return h.hexdigest(), size
 
 
+_QUERY_SECRET_RE = re.compile(
+    r"(?i)(^|[?&])((?:api[_-]?key|key|token|secret|access[_-]?token|auth|sig|signature|password|passwd|session|sid|code)=)([^&#]*)"
+)
+
+
 def normalize_url(url: str) -> str:
-    """Canonical form used for URL node ids: scheme/host lowercased, fragment dropped,
-    trailing slash on a bare path removed. Query strings are kept (they identify the page)."""
+    """Canonical form used for URL node ids: scheme/host lowercased, fragment and userinfo dropped,
+    credential-shaped query values masked, trailing slash on a bare path removed. The query is
+    otherwise kept because it identifies the page."""
     try:
         parts = urlsplit(url.strip())
     except ValueError:
-        return url.strip()
+        return redact_url_fallback(url.strip())
     scheme = (parts.scheme or "https").lower()
-    netloc = parts.netloc.lower()
-    if netloc.startswith("www."):
-        netloc = netloc[4:]
+    host = (parts.hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    netloc = host
+    try:
+        if parts.port:
+            netloc = f"{host}:{parts.port}"
+    except ValueError:
+        pass
     path = parts.path or "/"
     if len(path) > 1 and path.endswith("/"):
         path = path[:-1]
-    return urlunsplit((scheme, netloc, path, parts.query, ""))
+    query = _QUERY_SECRET_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}\u00abredacted\u00bb", parts.query or "")
+    return urlunsplit((scheme, netloc, path, query, ""))
+
+
+def redact_url_fallback(url: str) -> str:
+    return re.sub(r"(https?://)([^/\s@]+)@", r"\1", url)
 
 
 def resolve_path(path: str, cwd: str | os.PathLike[str] | None) -> str:
