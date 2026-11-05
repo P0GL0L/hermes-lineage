@@ -2,7 +2,10 @@
   "name": "lineage-desktop-tests",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test --test-force-exit" },
+  "scripts": {
+    "pretest": "node -e \"require('fs').cpSync('sdk-shim','node_modules/@hermes/plugin-sdk',{recursive:true})\"",
+    "test": "node --test --test-force-exit"
+  },
   "devDependencies": {
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
