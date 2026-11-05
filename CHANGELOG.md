@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.5 — 2026-11-05
+
+From the catalog review (thanks, Teknium): the disclosure now says *redirects are followed* on `verify --refetch`, and they were — without a second check.
+
+- `verify --refetch` checks every redirect hop against the same public-host rule as the first URL (Hermes's `is_safe_url` when available), at most 5 hops. A public page can no longer bounce the request to loopback, a private network or a cloud metadata address; the source reports `refused` with the redirect target instead. Reachable results record `final_url` when a redirect was followed.
+- README and catalog disclosure match the reviewed wording.
+
 ## 0.1.4 — 2026-11-05
 
 Found while recording the demo: a later session appended a row to `revenue.csv`, and Verify on the note built from it still said *fresh*.

@@ -401,3 +401,47 @@ def test_old_edges_without_a_snapshot_still_go_stale(plugin, workspace, session_
     later.end_turn("appended")
     v = receipt_mod.verify(store, note["id"])
     assert v["summary"]["verdict"] == "stale", v
+
+
+def test_refetch_checks_every_redirect_hop(plugin, monkeypatch):
+    """A public page must not be able to bounce verify --refetch to a private address."""
+    import http.server
+    import threading
+    from urllib.parse import urlsplit
+
+    receipt_mod = _mod(plugin, "receipt")
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            port = self.server.server_address[1]
+            if self.path == "/to-private":
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{port}/secret")
+                self.end_headers()
+            elif self.path == "/to-public":
+                self.send_response(301)
+                self.send_header("Location", f"http://localhost:{port}/page")
+                self.end_headers()
+            else:
+                body = b"metadata-credentials" if self.path == "/secret" else b"public page"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+    # Treat the name "localhost" as the public host and the literal 127.0.0.1 as the private one.
+    monkeypatch.setattr(receipt_mod, "_url_is_safe", lambda u: urlsplit(u).hostname == "localhost")
+    try:
+        bounced = receipt_mod._fetch_url_fingerprint(f"http://localhost:{port}/to-private")
+        assert bounced["status"] == "refused" and "non-public" in bounced["reason"], bounced
+        assert bounced["redirect_to"].endswith("/secret") and "sha256" not in bounced
+        ok = receipt_mod._fetch_url_fingerprint(f"http://localhost:{port}/to-public")
+        assert ok["status"] == "reachable" and ok["final_url"].endswith("/page")
+    finally:
+        srv.shutdown()

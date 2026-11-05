@@ -330,9 +330,13 @@ def _url_is_safe(url: str) -> bool:
     return True
 
 
+MAX_REDIRECTS = 5
+
+
 def _fetch_url_fingerprint(url: str, timeout: float = 8.0) -> dict:
     """Reachability and a content fingerprint for *url* (bounded to 1 MiB). Network only on request,
-    and only to public hosts."""
+    and only to public hosts — every redirect hop is checked again, so a public page cannot bounce the
+    request to loopback, a private network or a cloud metadata address."""
     import urllib.error
     import urllib.request
 
@@ -341,13 +345,36 @@ def _fetch_url_fingerprint(url: str, timeout: float = 8.0) -> dict:
         return {"status": "skipped", "reason": "not http(s)"}
     if not _url_is_safe(url):
         return {"status": "refused", "reason": "not a public host"}
+
+    class _RefusedRedirect(Exception):
+        def __init__(self, target: str, reason: str):
+            super().__init__(reason)
+            self.target, self.reason = target, reason
+
+    class _CheckedRedirects(urllib.request.HTTPRedirectHandler):
+        max_redirections = MAX_REDIRECTS
+
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            if urlsplit(newurl).scheme not in ("http", "https"):
+                raise _RefusedRedirect(newurl, "redirect to a non-http(s) URL")
+            if not _url_is_safe(newurl):
+                raise _RefusedRedirect(newurl, "redirect to a non-public host")
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+    opener = urllib.request.build_opener(_CheckedRedirects)
     req = urllib.request.Request(url, headers={"User-Agent": f"hermes-lineage/{__version__} (+verify)"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - scheme checked above
+        with opener.open(req, timeout=timeout) as resp:  # noqa: S310 - scheme and every hop checked
             data = resp.read(1024 * 1024)
             headers = {k.lower(): v for k, v in resp.headers.items()}
-            return {"status": "reachable", "http_status": getattr(resp, "status", None), "sha256": sha256_bytes(data),
-                    "bytes": len(data), "etag": headers.get("etag"), "last_modified": headers.get("last-modified")}
+            out = {"status": "reachable", "http_status": getattr(resp, "status", None), "sha256": sha256_bytes(data),
+                   "bytes": len(data), "etag": headers.get("etag"), "last_modified": headers.get("last-modified")}
+            final = resp.geturl()
+            if final and final != url:
+                out["final_url"] = final
+            return out
+    except _RefusedRedirect as exc:
+        return {"status": "refused", "reason": exc.reason, "redirect_to": exc.target}
     except urllib.error.HTTPError as exc:
         return {"status": "unreachable", "http_status": exc.code}
     except Exception as exc:  # network errors of every kind

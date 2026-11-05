@@ -110,7 +110,7 @@ artifact hash, receipt hash, and the signature if the key is local.
 ## Verify
 
 `verify` re-hashes the artifact and every file source and compares. URL sources are `unchecked`
-unless `--refetch`; then they are fetched (public hosts only — Hermes's `is_safe_url` when available,
+unless `--refetch`; then they are fetched (public hosts only, every redirect hop included — Hermes's `is_safe_url` when available,
 otherwise a local resolver check that refuses loopback, private and link-local addresses), bounded to
 1 MiB. Because the recorded hash is of Hermes's *extracted* text, a raw fetch cannot reproduce it;
 the first refetch stores a baseline fingerprint (hash, ETag, Last-Modified) and later runs report
