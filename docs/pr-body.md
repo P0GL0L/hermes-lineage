@@ -11,3 +11,7 @@ Adds `plugin-catalog/lineage.yaml` (community tier, `tools` category), pinned to
 **Desktop half.** `desktop/plugin.js` uses only `@hermes/plugin-sdk` and `react`; `dashboard/plugin_api.py` mounts under `/api/plugins/lineage/`. Under `plugins.isolation: host` the CLI subcommand is not wired (noted in the README); the slash command and Desktop backend still work.
 
 Maintainer: P0GL0L (repository owner). Built for the Hermes Agent Plugin Hackathon, November 2026.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+https://claude.ai/code/session_01F1DXuWjUkUGYSqHhtAutEe
