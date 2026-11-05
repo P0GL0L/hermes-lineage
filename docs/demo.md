@@ -24,6 +24,6 @@ Narration is in *italics*; keep it under the recording, no music.
 
 ## Posting
 
-- Tweet: ≤90 s video, tag **@NousResearch**, one line: *"lineage — provenance receipts for everything your Hermes agent produces. Every file gets a receipt: sources, hashes, model, tool call, agent chain. Observed / evidenced / inferred, labelled. Hooks only, no network. `hermes plugins install lineage`"* + repo link.
+- Tweet: ≤90 s video, tag **@NousResearch**, one line: *"lineage — provenance receipts for everything your Hermes agent produces. Every file gets a receipt: sources, hashes, model, tool call, agent chain. Observed / evidenced / inferred, labelled. Hooks only; no network unless you ask for a refetch. `hermes plugins install lineage`"* + repo link.
 - Catalog PR: copy `catalog/lineage.yaml` into `hermes-agent/plugin-catalog/`, set `sha` to the release commit (40 hex), paste the Disclosure line into the PR description.
 - Submission form: catalog PR link + tweet link. Deadline **Nov 11, 2026, 5:00 PM EST** (confirm on the announcement post).

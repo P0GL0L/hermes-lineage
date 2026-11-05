@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/lineage.yaml"><img alt="In the official Hermes plugin catalog" src="https://img.shields.io/badge/Hermes%20plugin%20catalog-listed-5b8def"></a>
   <img alt="Hermes ≥ 0.21.5" src="https://img.shields.io/badge/Hermes%20Agent-%E2%89%A5%200.21.5-3a3f4a">
-  <img alt="hooks only" src="https://img.shields.io/badge/surface-hooks%20only%20%C2%B7%20no%20network-3a3f4a">
+  <img alt="hooks only" src="https://img.shields.io/badge/surface-hooks%20only%20%C2%B7%20network%20only%20on%20request-3a3f4a">
   <a href="https://github.com/P0GL0L/hermes-lineage/actions"><img alt="CI" src="https://github.com/P0GL0L/hermes-lineage/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-3a3f4a"></a>
 </p>
