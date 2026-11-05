@@ -51,7 +51,7 @@ def list_artifacts_text(store: Store, session_id: Optional[str], limit: int = 15
         meta = n.get("meta") or {}
         verdict = (meta.get("last_verify") or {}).get("verdict")
         tag = f"  [{verdict}]" if verdict else ""
-        lines.append(f"  {_fmt_ts(n.get('updated_at'))}  {n.get('label'):40s}  {n.get('source_count', 0):>2} src  "
+        lines.append(f"  {_fmt_ts(n.get('updated_at'))}  {str(n.get('label')):40s}  {n.get('source_count', 0):>2} src  "
                      f"{(n.get('sha256') or '?')[:10]}  {meta.get('producer_tool') or ''}{tag}")
     lines.append("  /lineage <file> for the story behind one of them")
     return "\n".join(lines)

@@ -220,7 +220,7 @@ def build_receipt(store: Store, ref: str, *, include_signature: bool = True, dat
             "sha256": node.get("sha256"),
             "size": node.get("size"),
             "created_at": _iso(node.get("created_at")),
-            "last_written_at": _iso(node.get("updated_at")),
+            "last_written_at": _iso(versions[-1].get("created_at")) if versions else _iso(node.get("created_at")),
             "versions": [{"sha256": v.get("sha256"), "size": v.get("size"), "at": _iso(v.get("created_at")),
                           "tool_call_id": v.get("tool_call_id")} for v in versions],
             "cited_in_final_reply": cited,
@@ -518,7 +518,8 @@ def explain(store: Store, ref: str, *, max_sources: int = 12) -> Optional[str]:
     if not receipt:
         return None
     a = receipt["artifact"]
-    lines = [f"{a['name']}  ({(a.get('sha256') or '?')[:12]}…, {a.get('size') or '?'} bytes)"]
+    size = a.get("size")
+    lines = [f"{a['name']}  ({(a.get('sha256') or '?')[:12]}…, {'?' if size is None else size} bytes)"]
     p = receipt.get("produced_by") or {}
     if p:
         lines.append(f"  written by {p.get('tool')} at {p.get('at')}")
@@ -528,7 +529,8 @@ def explain(store: Store, ref: str, *, max_sources: int = 12) -> Optional[str]:
         lines.append(f"  by {agents}")
     if receipt.get("models"):
         m = receipt["models"][0]
-        lines.append(f"  model call {m.get('model') or '?'} via {m.get('provider') or '?'}")
+        via = f" via {m['provider']}" if m.get("provider") else ""
+        lines.append(f"  model call {m.get('model') or '?'}{via}")
     t = receipt.get("turn") or {}
     if t.get("user_prompt_preview"):
         lines.append(f"  asked: “{t['user_prompt_preview'][:120]}”")

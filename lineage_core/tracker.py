@@ -331,9 +331,11 @@ class Tracker:
             f"mc:{rid}", "model_call", label=_s(kw.get("response_model") or kw.get("model")) or "model",
             session_id=_s(kw.get("session_id")), turn_id=_s(kw.get("turn_id")),
             meta={
-                "status": "ok", "response_model": _s(kw.get("response_model")), "finish_reason": _s(kw.get("finish_reason")),
-                "api_duration": kw.get("api_duration"), "ended_at": kw.get("ended_at") or _now(), "usage": usage,
-                "tool_calls": kw.get("assistant_tool_call_count"),
+                "status": "ok", "model": _s(kw.get("model")), "provider": _s(kw.get("provider")), "base_url": _s(kw.get("base_url")),
+                "api_mode": _s(kw.get("api_mode")), "api_call_count": kw.get("api_call_count"),
+                "response_model": _s(kw.get("response_model")), "finish_reason": _s(kw.get("finish_reason")),
+                "api_duration": kw.get("api_duration"), "started_at": kw.get("started_at"),
+                "ended_at": kw.get("ended_at") or _now(), "usage": usage, "tool_calls": kw.get("assistant_tool_call_count"),
             },
             overwrite_ids=True,
         )
