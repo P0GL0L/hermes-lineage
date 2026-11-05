@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4 — 2026-11-05
+
+Found while recording the demo: a later session appended a row to `revenue.csv`, and Verify on the note built from it still said *fresh*.
+
+- Each `derived_from` link now snapshots the source's hash and size at the moment the artifact is linked to it. Verify compares the file on disk with that snapshot, not with the source node's latest hash, which a later read or write in another session moves.
+- Links recorded by 0.1.3 and earlier have no snapshot; Verify still calls the source *changed* when a write to it is recorded after the link.
+- The provenance graph is drawn as of each link: a source rewritten after the artifact was built shows as the source it was then, without the later tool call and without being re-labelled an intermediate artifact. Receipts list the source hash as of the build.
+- Verify no longer moves the artifact's `updated_at`, so the list order and "written … ago" stay true after a check.
+
 ## 0.1.3 — 2026-11-05
 
 - A page or file first seen in an earlier session now counts as this session's source when this session reads it again. Before, evidence matching and the session window only saw nodes created in the current session, so a re-fetched URL that the artifact cites stayed *inferred* instead of *evidenced*.

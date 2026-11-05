@@ -330,9 +330,12 @@ class Store:
         meta: Optional[dict] = None,
         created_at: Optional[float] = None,
         overwrite_ids: bool = False,
+        touch: bool = True,
     ) -> dict:
         """Create or merge a node. ``session_id``/``turn_id``/``tool_call_id`` on an existing node are kept
-        unless ``overwrite_ids`` is set (a write re-attributes a file; a read never does)."""
+        unless ``overwrite_ids`` is set (a write re-attributes a file; a read never does). ``touch=False``
+        merges bookkeeping (a verify result) without moving ``updated_at``, which the UI shows as
+        "written … ago"."""
         now = time.time()
         with self._lock, self._conn:
             row = self._conn.execute("SELECT * FROM nodes WHERE id=?", (node_id,)).fetchone()
@@ -358,7 +361,7 @@ class Store:
                     " produced=MAX(produced, ?), consumed=MAX(consumed, ?), updated_at=?, meta=? WHERE id=?",
                     (
                         label, path, url, sha256, size, session_id, turn_id, tool_call_id,
-                        1 if produced else 0, 1 if consumed else 0, now, _j(merged), node_id,
+                        1 if produced else 0, 1 if consumed else 0, now if touch else row["updated_at"], _j(merged), node_id,
                     ),
                 )
             return self._row(self._conn.execute("SELECT * FROM nodes WHERE id=?", (node_id,)).fetchone())
@@ -503,7 +506,17 @@ class Store:
         if confidence is None:
             confidence = {"observed": 1.0, "evidenced": 0.9, "inferred": 0.5}[basis]
         now = time.time()
+        meta = dict(meta or {})
         with self._lock, self._conn:
+            if rel == "derived_from":
+                # Snapshot the source as it is *now*, when the artifact is linked to it. The source node
+                # keeps moving (a later session may rewrite the file); verify and the graph compare
+                # against this snapshot, not against the node's latest state.
+                dst_row = self._conn.execute("SELECT sha256, size FROM nodes WHERE id=?", (dst,)).fetchone()
+                meta["linked_at"] = now
+                if dst_row is not None and dst_row["sha256"]:
+                    meta["src_sha256"] = dst_row["sha256"]
+                    meta["src_size"] = dst_row["size"]
             row = self._conn.execute(
                 "SELECT id, basis, confidence, meta FROM edges WHERE src=? AND dst=? AND rel=?", (src, dst, rel)
             ).fetchone()
@@ -511,18 +524,23 @@ class Store:
                 self._conn.execute(
                     "INSERT INTO edges(src, dst, rel, basis, confidence, turn_id, tool_call_id, created_at, meta)"
                     " VALUES(?,?,?,?,?,?,?,?,?)",
-                    (src, dst, rel, basis, confidence, turn_id, tool_call_id, now, _j(meta or {})),
+                    (src, dst, rel, basis, confidence, turn_id, tool_call_id, now, _j(meta)),
                 )
             elif BASIS_RANK[basis] > BASIS_RANK.get(row["basis"], 0) or (
                 basis == row["basis"] and (confidence or 0) > (row["confidence"] or 0)
             ):
                 merged = _loads(row["meta"])
-                merged.update(meta or {})
+                merged.update(meta)
                 self._conn.execute(
                     "UPDATE edges SET basis=?, confidence=?, turn_id=COALESCE(?, turn_id),"
                     " tool_call_id=COALESCE(?, tool_call_id), meta=? WHERE id=?",
                     (basis, confidence, turn_id, tool_call_id, _j(merged), row["id"]),
                 )
+            elif rel == "derived_from":
+                # Same link made again (the artifact was rewritten): refresh the snapshot only.
+                merged = _loads(row["meta"])
+                merged.update({k: v for k, v in meta.items() if k in ("linked_at", "src_sha256", "src_size")})
+                self._conn.execute("UPDATE edges SET meta=? WHERE id=?", (_j(merged), row["id"]))
 
     def edges_from(self, src: str, rel: Optional[str] = None) -> list[dict]:
         sql, params = "SELECT * FROM edges WHERE src=?", [src]
@@ -596,23 +614,34 @@ class Store:
     # ------------------------------------------------------------------- graph
     PRODUCER_RELS = frozenset({"wrote", "invoked", "returned", "delegated_by", "spawned_in"})
 
+    @staticmethod
+    def edge_time(edge: dict) -> float:
+        """When an edge last held: ``linked_at`` for a re-made derived_from link, else ``created_at``."""
+        return float((edge.get("meta") or {}).get("linked_at") or edge.get("created_at") or 0)
+
     def neighborhood(self, node_id: str, *, depth: int = 6, direction: str = "provenance", limit: int = 400) -> dict:
         """Nodes and edges reachable from *node_id*.
 
         * ``'provenance'`` (default): everything that explains the node — its out-edges (sources, agent,
           turn) plus the in-edges that *made* it (the tool call that wrote it, the model call that
-          invoked that tool call, the query that returned a URL), recursively.
+          invoked that tool call, the query that returned a URL), recursively. The walk is *as of* the
+          moment each source was linked: a source rewritten after the artifact was built shows as it
+          was then (its later writer is not pulled in, and it is not re-labelled an artifact).
         * ``'up'`` follows out-edges only; ``'down'`` follows in-edges only (what was built from this);
           ``'both'`` follows everything.
         """
+        slack = 1.0
+        as_of: dict[str, float] = {}  # node -> latest edge time that can explain it
         seen: set[str] = {node_id}
         frontier = [node_id]
         edges: dict[int, dict] = {}
+        snapshot: dict[str, dict] = {}  # source node -> derived_from edge meta from the root
         for _ in range(max(depth, 0)):
             if not frontier or len(seen) >= limit:
                 break
             nxt: list[str] = []
             for nid in frontier:
+                cutoff = as_of.get(nid)
                 rows: list[dict] = []
                 if direction in ("up", "both", "provenance"):
                     rows.extend(self.edges_from(nid))
@@ -621,13 +650,34 @@ class Store:
                 if direction == "provenance":
                     rows.extend(e for e in self.edges_to(nid) if e["rel"] in self.PRODUCER_RELS)
                 for e in rows:
+                    if direction == "provenance" and cutoff is not None and (e.get("created_at") or 0) > cutoff + slack:
+                        continue  # happened after this node fed the artifact
                     edges[e["id"]] = e
-                    for other in (e["src"], e["dst"]):
-                        if other not in seen:
-                            seen.add(other)
-                            nxt.append(other)
+                    other = e["dst"] if e["src"] == nid else e["src"]
+                    if direction == "provenance":
+                        t = self.edge_time(e) if (e["src"] == nid and e["rel"] == "derived_from") else cutoff
+                        if t is not None:
+                            as_of[other] = min(as_of.get(other, t), t)
+                        if nid == node_id and e["rel"] == "derived_from":
+                            snapshot[other] = e.get("meta") or {}
+                    if other not in seen:
+                        seen.add(other)
+                        nxt.append(other)
             frontier = nxt
-        nodes = [n for n in (self.get_node(nid) for nid in seen) if n]
+        nodes = []
+        for nid in seen:
+            n = self.get_node(nid)
+            if not n:
+                continue
+            if direction == "provenance" and nid != node_id and n.get("kind") == "file" and n.get("produced"):
+                cutoff = as_of.get(nid)
+                writers = self.edges_to(nid, "wrote")
+                if cutoff is not None and writers and all((w.get("created_at") or 0) > cutoff + slack for w in writers):
+                    n = dict(n, produced=0, meta={k: v for k, v in (n.get("meta") or {}).items() if k != "producer_tool"})
+            snap = snapshot.get(nid)
+            if snap and snap.get("src_sha256") and snap["src_sha256"] != n.get("sha256"):
+                n = dict(n, sha256=snap["src_sha256"], size=snap.get("src_size", n.get("size")), as_of=snap.get("linked_at"))
+            nodes.append(n)
         return {"root": node_id, "nodes": nodes, "edges": list(edges.values())}
 
     def stats(self) -> dict:

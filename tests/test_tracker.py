@@ -331,3 +331,73 @@ def test_sources_seen_in_an_earlier_session_still_count(plugin, workspace, sessi
     node = store.find_file_node(str(note))
     edges = [e for e in store.edges_from(node["id"]) if e["dst"].startswith("url:")]
     assert [e["basis"] for e in edges] == ["evidenced"], edges
+
+
+def test_source_rewritten_in_a_later_session_makes_the_artifact_stale(plugin, workspace, session_factory):
+    """The live-demo bug: a later session appends to revenue.csv with the terminal.
+
+    The file node is shared, so the later write moved its recorded hash; verify must still compare
+    against the bytes the note was built from, and the note's graph must not show the later write
+    as one of its inputs.
+    """
+    receipt_mod = _mod(plugin, "receipt")
+    s = session_factory()
+    report, _chart, csv = research_task(s, workspace)
+    store = plugin.get_tracker().store
+    note = store.find_file_node(str(report))
+    assert receipt_mod.verify(store, note["id"])["summary"]["verdict"] == "fresh"
+    before = note["updated_at"]
+    assert store.get_node(note["id"])["updated_at"] == before, "verify must not look like a write"
+
+    time.sleep(1.2)
+    later = session_factory()
+    later.start_turn("Q4 numbers landed; append Q4,21 to revenue.csv")
+    rid = later.model_call()
+
+    def append():
+        with open(csv, "a") as fh:
+            fh.write("Q4,21\n")
+
+    later.tool("terminal", {"command": f"printf 'Q4,21\\n' >> {csv}"}, "", during=append, api_request_id=rid)
+    later.end_turn("appended")
+    csv_node = store.find_file_node(str(csv))
+    assert csv_node["produced"] == 1  # the later session did write it
+
+    v = receipt_mod.verify(store, note["id"])
+    assert v["summary"]["verdict"] == "stale", v
+    row = next(x for x in v["sources"] if x["locator"] == str(csv))
+    assert row["status"] == "changed" and row["linked_sha256"] != row["current_sha256"]
+
+    g = store.neighborhood(note["id"])
+    as_seen = next(n for n in g["nodes"] if n["id"] == csv_node["id"])
+    assert as_seen["produced"] == 0 and as_seen["sha256"] == row["linked_sha256"]
+    later_tools = {n["id"] for n in g["nodes"] if n.get("kind") == "tool_call" and n.get("session_id") == later.sid}
+    assert not later_tools, "the later write is not part of the note's provenance"
+
+    receipt = receipt_mod.build_receipt(store, note["id"])
+    src = next(x for x in receipt["sources"] if x["locator"] == str(csv))
+    assert src["sha256"] == row["linked_sha256"]
+
+
+def test_old_edges_without_a_snapshot_still_go_stale(plugin, workspace, session_factory):
+    """Databases from 0.1.3 and earlier have no snapshot on the edge; a recorded later write still counts."""
+    import json as _json
+
+    receipt_mod = _mod(plugin, "receipt")
+    s = session_factory()
+    report, _chart, csv = research_task(s, workspace)
+    store = plugin.get_tracker().store
+    note = store.find_file_node(str(report))
+    with store._lock, store._conn:  # strip the snapshot, as an old install would have written it
+        for row in store._conn.execute("SELECT id, meta FROM edges WHERE rel='derived_from'").fetchall():
+            m = _json.loads(row["meta"] or "{}")
+            for k in ("src_sha256", "src_size", "linked_at"):
+                m.pop(k, None)
+            store._conn.execute("UPDATE edges SET meta=? WHERE id=?", (_json.dumps(m), row["id"]))
+    time.sleep(1.2)
+    later = session_factory()
+    later.start_turn("append Q4")
+    later.tool("terminal", {"command": f"printf 'Q4,21\\n' >> {csv}"}, "", during=lambda: open(csv, "a").write("Q4,21\n"))
+    later.end_turn("appended")
+    v = receipt_mod.verify(store, note["id"])
+    assert v["summary"]["verdict"] == "stale", v

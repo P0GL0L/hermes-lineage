@@ -100,25 +100,40 @@ def check_signature(receipt: dict, data_dir: Optional[Path] = None) -> Optional[
 
 
 # -------------------------------------------------------------------- building
+def _linked_state(edge: dict, node: dict) -> tuple[Optional[str], Optional[int]]:
+    """The source's hash and size when the artifact was linked to it (falls back to the node for old edges)."""
+    m = edge.get("meta") or {}
+    if m.get("src_sha256"):
+        return m["src_sha256"], m.get("src_size")
+    return node.get("sha256"), node.get("size")
+
+
+def _rewritten_after(store: Store, edge: dict, node: dict) -> bool:
+    """True when a write to the source is recorded after the artifact was linked to it."""
+    t = Store.edge_time(edge)
+    return any((v.get("created_at") or 0) > t + 1.0 for v in store.versions(node["id"]))
+
+
 def _source_entry(store: Store, edge: dict, node: dict) -> dict:
     kind = node.get("kind")
     locator = node.get("url") or node.get("path") or (node.get("meta") or {}).get("query") or node.get("label")
+    sha, size = _linked_state(edge, node)
     entry = {
         "id": node["id"],
         "kind": kind,
         "locator": locator,
-        "sha256": node.get("sha256"),
-        "size": node.get("size"),
+        "sha256": sha,
+        "size": size,
         "basis": edge.get("basis"),
         "confidence": edge.get("confidence"),
         "reason": (edge.get("meta") or {}).get("reason"),
         "first_seen": _iso(node.get("created_at")),
     }
     if kind == "url":
-        entry["sha256_of"] = "extracted page content at fetch time" if node.get("sha256") else None
+        entry["sha256_of"] = "extracted page content at fetch time" if sha else None
         entry["fetched_at"] = _iso((node.get("meta") or {}).get("fetched_at"))
     if kind == "file":
-        entry["sha256_of"] = "file bytes when read" if node.get("sha256") else None
+        entry["sha256_of"] = "file bytes when this artifact was built" if sha else None
         entry["produced_by_agent"] = bool(node.get("produced"))
     # Which tool call read it (the first one in this session).
     readers = [e for e in store.edges_to(node["id"], "read")]
@@ -193,7 +208,7 @@ def build_receipt(store: Store, ref: str, *, include_signature: bool = True, dat
         entry = _source_entry(store, e, src)
         sources.append(entry)
         if src.get("kind") == "file" and src.get("produced"):
-            parents.append({"id": src["id"], "path": src.get("path"), "sha256": src.get("sha256"), "basis": e.get("basis")})
+            parents.append({"id": src["id"], "path": src.get("path"), "sha256": entry.get("sha256"), "basis": e.get("basis")})
     rank = {"observed": 0, "evidenced": 1, "inferred": 2}
     sources.sort(key=lambda s: (rank.get(s.get("basis") or "", 9), -(s.get("confidence") or 0), s.get("locator") or ""))
 
@@ -384,12 +399,19 @@ def verify(store: Store, ref: str, *, refetch: bool = False, data_dir: Optional[
                                  "basis": e.get("basis")}
         if src.get("kind") == "file" and src.get("path"):
             sha, _size = sha256_file(src["path"])
+            linked_sha, _linked_size = _linked_state(e, src)
+            entry["linked_sha256"], entry["current_sha256"] = linked_sha, sha
             if sha is None and _size is None:
                 entry["status"] = "missing"
-            elif sha == src.get("sha256"):
-                entry["status"] = "unchanged"
-            else:
+            elif (e.get("meta") or {}).get("src_sha256"):
+                entry["status"] = "unchanged" if sha == linked_sha else "changed"
+            elif _rewritten_after(store, e, src):
+                # Edge from before 0.1.4 (no snapshot): a recorded write after the link is still a change.
                 entry["status"] = "changed"
+                entry["reason"] = "rewritten after this artifact was built"
+            else:
+                entry["status"] = "unchanged" if sha == src.get("sha256") else "changed"
+            if entry["status"] == "changed":
                 changed += 1
         elif src.get("kind") == "url" and src.get("url"):
             if not refetch:
@@ -407,8 +429,9 @@ def verify(store: Store, ref: str, *, refetch: bool = False, data_dir: Optional[
                             changed += 1
                     else:
                         entry["status"] = "reachable (baseline set)"
-                        store.upsert_node(src["id"], "url", meta={"verify_baseline": {"sha256": fp.get("sha256"), "etag": fp.get("etag"),
-                                                                                    "last_modified": fp.get("last_modified"), "at": _iso(_now())}})
+                        store.upsert_node(src["id"], "url", touch=False,
+                                          meta={"verify_baseline": {"sha256": fp.get("sha256"), "etag": fp.get("etag"),
+                                                                    "last_modified": fp.get("last_modified"), "at": _iso(_now())}})
                 else:
                     entry["status"] = fp.get("status", "unreachable")
         else:
@@ -420,7 +443,7 @@ def verify(store: Store, ref: str, *, refetch: bool = False, data_dir: Optional[
         "sources_changed": changed,
         "verdict": "fresh" if artifact_status == "unchanged" and changed == 0 else ("stale" if changed else artifact_status),
     }
-    store.upsert_node(node["id"], "file", meta={"last_verify": {"at": result["checked_at"], "verdict": result["summary"]["verdict"],
+    store.upsert_node(node["id"], "file", touch=False, meta={"last_verify": {"at": result["checked_at"], "verdict": result["summary"]["verdict"],
                                                             "sources_changed": changed}})
     return result
 
