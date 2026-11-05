@@ -2,7 +2,7 @@
 
 ## 0.1.5 — 2026-11-05
 
-From the catalog review (thanks, Teknium) and a second independent review of the code. Every item has a test that fails on 0.1.4.
+From the catalog review (thanks, Teknium) and a second independent review of the code. Every item has a test that fails on the code before it.
 
 **Security and honesty**
 - `verify --refetch` checks every redirect hop against the same public-host rule as the first URL, at most 5 hops. A public page can no longer bounce it to loopback, a private network or a metadata address. The fallback check now refuses everything that is not globally routable, including 100.64.0.0/10 (CGNAT, Tailscale).
@@ -24,6 +24,16 @@ From the catalog review (thanks, Teknium) and a second independent review of the
 - Two sources with the same file name in different folders are told apart by the path in the text.
 - `prune` keeps nodes that a newer session still reads or cites.
 - `resolve` handles `./name`, dotfiles and `_`/`%` in names.
+
+**Second pass.** The reviewer then attacked the fixes themselves and found ten more problems (six introduced by them); all fixed, with `tests/test_verify_pass.py`:
+- A later edit no longer drops sources the file still names (re-derivation considers the previous version's sources, whichever session read them).
+- `chmod`/`ln` no longer make a file an artifact: a ctime-only change counts only when it is a move of an artifact.
+- "Same bytes" links only for moves or same-session copies of 32+ bytes, labelled *inferred* — two `"\n"` files are not one file.
+- Credential query names are matched word by word, so `?author=`, `?keyword=` and `?zipcode=` keep distinct URLs.
+- File-name matching respects path boundaries (`data.csv` is not in `metadata.csv`) and full paths of short names match again.
+- `check` fails a receipt whose signature was removed (`absent`); a key this install doesn't hold reads `other install`.
+- `prune` never re-credits an artifact to a session that only read it.
+- `redis://:password@` (empty user) is masked; a command's `> /elsewhere/out.md` output is not an input; a blocked command (no positive `exit_code`) records nothing.
 
 **Performance**
 - Each tool call's writes go into one SQLite transaction; inferred links per artifact are capped (`turn_max_inferred_sources`, 25 newest). A turn with 400 reads and a command writing 50 files went from 21,753 edges and 8.7 s inside the hook to 1,403 edges and 0.3 s (measured in this container).

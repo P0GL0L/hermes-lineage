@@ -99,6 +99,16 @@ def check_signature(receipt: dict, data_dir: Optional[Path] = None) -> Optional[
     return hmac.compare_digest(expected, str(sig.get("value") or ""))
 
 
+def signature_status(receipt: dict, data_dir: Optional[Path] = None) -> str:
+    """``valid`` / ``INVALID`` (this install's key, wrong value) / ``absent`` (no signature at all) /
+    ``other install`` (signed with a key this install does not hold — consistent, not authenticated)."""
+    sig = (receipt.get("integrity") or {}).get("signature")
+    if not sig:
+        return "absent"
+    checked = check_signature(receipt, data_dir)
+    return {True: "valid", False: "INVALID", None: "other install"}[checked]
+
+
 # -------------------------------------------------------------------- building
 def _linked_state(edge: dict, node: dict) -> tuple[Optional[str], Optional[int]]:
     """The source's hash and size when the artifact was linked to it (falls back to the node for old edges)."""
@@ -426,9 +436,9 @@ def verify(store: Store, ref: str, *, refetch: bool = False, data_dir: Optional[
     }
     sidecar = read_sidecar(path)
     if sidecar:
-        sig = check_signature(sidecar, data_dir)
+        sig = signature_status(sidecar, data_dir)
         result["sidecar"] = {"present": True, "path": str(sidecar_path(path)), "receipt_sha256_matches": _receipt_hash_ok(sidecar),
-                             "signature": {True: "valid", False: "INVALID", None: "not checkable from this install"}[sig],
+                             "signature": sig,
                              "artifact_sha256_matches_receipt": (sidecar.get("artifact") or {}).get("sha256") == now_sha}
     else:
         result["sidecar"] = {"present": False}
@@ -507,7 +517,8 @@ def verify_receipt_file(receipt_path: str) -> dict:
     The receipt names the path it was issued for, but a copy travels: what is checked is the file next
     to the receipt (``x.md`` for ``x.md.receipt.json``), never the original path, which may be somewhere
     else entirely. ``ok`` needs the bytes to match, the receipt body to hash to its recorded digest,
-    and the signature to be valid or not checkable here — an INVALID signature always fails."""
+    and a signature that is valid — or made with another install's key, which this install cannot
+    check. A missing or INVALID signature always fails: every receipt lineage writes is signed."""
     p = Path(receipt_path)
     try:
         receipt = json.loads(p.read_text(encoding="utf-8"))
@@ -520,15 +531,15 @@ def verify_receipt_file(receipt_path: str) -> dict:
         target = str(p.with_name(art.get("name") or os.path.basename(art.get("path") or "")))
     sha, size = sha256_file(target) if os.path.isfile(target) else (None, None)
     body_ok = _receipt_hash_ok(receipt)
-    sig = check_signature(receipt)
+    sig = signature_status(receipt)
     out = {
-        "ok": bool(sha) and sha == art.get("sha256") and body_ok is True and sig is not False,
+        "ok": bool(sha) and sha == art.get("sha256") and body_ok is True and sig in ("valid", "other install"),
         "receipt": str(p),
         "artifact": target,
         "issued_for": art.get("path"),
         "artifact_sha256_matches": sha == art.get("sha256") if sha else False,
         "receipt_sha256_matches": body_ok,
-        "signature": {True: "valid", False: "INVALID", None: "not checkable from this install"}[sig],
+        "signature": sig,
         "recorded_sha256": art.get("sha256"),
         "current_sha256": sha,
         "sources": len(receipt.get("sources") or []),

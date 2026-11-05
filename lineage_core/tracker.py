@@ -483,7 +483,7 @@ class Tracker:
         # A failed write or read touched nothing. A shell command is different: `pytest --junitxml=r.xml`
         # or a build that writes its output and then exits 1 is reported as an error, yet the files it
         # wrote are real, so terminal/execute_code are always scanned for changed files.
-        if status != "ok" and tool not in EXEC_TOOLS:
+        if status != "ok" and not (tool in EXEC_TOOLS and self._command_ran(result_text)):
             return
 
         with self.store.batch():
@@ -506,12 +506,35 @@ class Tracker:
                     produced.append((resolve_path(rel, cwd), None, "observed", None))
         elif tool in EXEC_TOOLS:
             workdir = _s(args.get("workdir")) or cwd
+            command = _s(args.get("command") or args.get("code")) or ""
+            seen_paths: set[str] = set()
             if workdir:
-                for changed in self._modified_since(workdir, started):
+                for changed, ctime_only in self._modified_since(workdir, started):
                     # Hermes says the command ran; *which* files it wrote is lineage's inference from the
                     # working tree (another process writing there at the same moment would look the same).
-                    produced.append((changed, None, "inferred", "changed in the working tree during this call"))
+                    if ctime_only:
+                        # chmod, ln, xattrs and renames all bump ctime; only a rename of an artifact counts
+                        if not self._moved_artifact(changed):
+                            continue
+                        produced.append((changed, None, "inferred", "moved here during this call"))
+                    else:
+                        produced.append((changed, None, "inferred", "changed in the working tree during this call"))
+                    seen_paths.add(changed)
+            # Redirect / tee / -o targets anywhere on disk (`python gen.py > /tmp/out/report.md`).
+            for target in self._command_outputs(command, workdir):
+                if target in seen_paths or not os.path.isfile(target) or looks_like_credential(target):
+                    continue
+                try:
+                    if os.stat(target).st_mtime >= started - 0.1:
+                        produced.append((target, None, "inferred", "the command's output (redirect or -o)"))
+                        seen_paths.add(target)
+                except OSError:
+                    continue
         produced_paths = {p for p, *_ in produced}
+        if tool in EXEC_TOOLS:
+            # an output named in the command is never one of its inputs, even if it already existed
+            produced_paths |= set(self._command_outputs(_s(args.get("command") or args.get("code")) or "",
+                                                        _s(args.get("workdir")) or cwd))
 
         # 2. What did this call read?
         if status == "ok":
@@ -536,6 +559,42 @@ class Tracker:
                                   reason="path named in tool result, modified during the call")
         if len(produced) > cap:
             self.store.upsert_node(tc_node, "tool_call", meta={"artifacts_truncated": len(produced) - cap})
+
+    _REDIRECT_RE = re.compile(r"(?:^|[\s;&|(])(?:\d?>>?|&>>?)\s*([^\s;&|<>()]+)")
+    _TEE_RE = re.compile(r"\btee\s+(?:-[a-z]+\s+)*([^\s;&|<>()]+)")
+    _OUTPUT_FLAG_RE = re.compile(r"(?:\s-o|\s--output|\s--out|\s--output-file)(?:\s+|=)([^\s;&|<>()]+)")
+
+    def _command_outputs(self, command: str, cwd: Optional[str]) -> list[str]:
+        """Files a shell command names as its output: ``> f``, ``>> f``, ``2> f``, ``tee f``, ``-o f``."""
+        out: list[str] = []
+        for rx in (self._REDIRECT_RE, self._TEE_RE, self._OUTPUT_FLAG_RE):
+            for m in rx.finditer(command or ""):
+                t = m.group(1).strip("'\"")
+                if not t or t.startswith(("&", "/dev/")) or "$" in t:
+                    continue
+                p = resolve_path(t, cwd)
+                if p not in out:
+                    out.append(p)
+        return out[:20]
+
+    def _moved_artifact(self, abs_path: str) -> bool:
+        """True when *abs_path* has the bytes of an artifact whose own path is gone (it was moved here)."""
+        sha, size = sha256_file(abs_path)
+        if not sha or not size:
+            return False
+        return any(t.get("produced") and t.get("path") and not os.path.exists(t["path"])
+                   for t in self.store.nodes_with_sha(sha, exclude=f"file:{abs_path}"))
+
+    @staticmethod
+    def _command_ran(result_text: str) -> bool:
+        """A failed shell call whose command actually ran: Hermes reports a positive ``exit_code``. A
+        blocked, rejected or un-runnable command reports -1 (or no exit code) and wrote nothing."""
+        try:
+            data = json.loads(result_text) if result_text else None
+        except Exception:
+            return False
+        code = data.get("exit_code") if isinstance(data, dict) else None
+        return isinstance(code, int) and not isinstance(code, bool) and code > 0
 
     # ------------------------------------------------------- consumed inputs
     def _record_consumed(self, tool: str, args: dict, result_text: str, status: str, cwd: Optional[str],
@@ -629,9 +688,14 @@ class Tracker:
         nid = node["id"]
         new_version = self.store.add_version(nid, sha256=node.get("sha256"), size=node.get("size"),
                                              tool_call_id=ctx.get("tool_call_id"), turn_id=ctx.get("turn_id"))
+        previous: dict[str, dict] = {}
         if new_version:
-            # Sources describe the bytes on disk now. A rewrite starts from scratch; what the earlier
-            # version was made from stays in its own history, not in this version's receipt.
+            # Sources describe the bytes on disk now. A new version re-derives them: a source the text
+            # still names is evidenced again (whichever session read it), the rest are dropped.
+            for e in self.store.edges_from(nid, "derived_from"):
+                n = self.store.get_node(e["dst"])
+                if n:
+                    previous[n["id"]] = n
             self.store.clear_edges(nid, "derived_from")
         edge_meta = dict(extra or {})
         if reason:
@@ -651,6 +715,8 @@ class Tracker:
         if text and len(text) > int(self.config["evidence_scan_bytes"]):
             text = text[: int(self.config["evidence_scan_bytes"])]
         session_sources = self._session_source_index(ctx.get("session_id"))
+        for pid, pn in previous.items():
+            session_sources.setdefault(pid, pn)
         evidenced: set[str] = set()
         if text:
             for url in find_urls(text):
@@ -662,11 +728,17 @@ class Tracker:
                 self.store.add_edge(nid, src_id, "derived_from", basis="evidenced", meta={"reason": "path appears in artifact"}, **ctx)
                 evidenced.add(src_id)
             # Same bytes as another artifact: the file was moved or copied (``mv draft.md final.md``).
-            if new_version and node.get("sha256") and (node.get("size") or 0) > 0:
+            # Only for a move (the twin's path is gone) or a copy within this session, and never for
+            # trivial content: two "\n" __init__.py files are not one file.
+            if new_version and node.get("sha256") and (node.get("size") or 0) >= 32:
                 for twin in self.store.nodes_with_sha(node["sha256"], exclude=nid):
-                    if twin.get("produced") and twin["id"] not in evidenced:
-                        self.store.add_edge(nid, twin["id"], "derived_from", basis="evidenced",
-                                            meta={"reason": f"same bytes as {twin.get('label') or 'another artifact'} (moved or copied)"}, **ctx)
+                    if not twin.get("produced") or twin["id"] in evidenced:
+                        continue
+                    moved = bool(twin.get("path")) and not os.path.exists(twin["path"])
+                    if moved or twin.get("session_id") == ctx.get("session_id"):
+                        verb = "moved" if moved else "copied"
+                        self.store.add_edge(nid, twin["id"], "derived_from", basis="inferred", confidence=0.9,
+                                            meta={"reason": f"same bytes as {twin.get('label') or 'another artifact'} ({verb})"}, **ctx)
                         evidenced.add(twin["id"])
 
         # Inferred: read earlier in this turn, then in the recent session window.
@@ -717,7 +789,7 @@ class Tracker:
         return out
 
     # ------------------------------------------------------- modified files
-    def _modified_since(self, workdir: str, started: float) -> list[str]:
+    def _modified_since(self, workdir: str, started: float) -> list[tuple[str, bool]]:
         """Regular files under *workdir* whose mtime falls inside the call window, bounded by
         ``snapshot_max_files`` and ``snapshot_max_seconds``; a tree too big or too slow yields []."""
         root = Path(workdir)
@@ -746,9 +818,12 @@ class Tracker:
                         continue
                     if not os.path.isfile(p) or os.path.islink(p):
                         continue
-                    # mtime for writes; ctime too, because a rename (``mv a b``) keeps the old mtime
-                    if stt.st_mtime >= threshold or stt.st_ctime >= threshold:
-                        out.append(p)
+                    # mtime for writes; ctime too, because a rename (``mv a b``) keeps the old mtime —
+                    # the caller decides whether a ctime-only change was a move or just a chmod
+                    if stt.st_mtime >= threshold:
+                        out.append((p, False))
+                    elif stt.st_ctime >= threshold:
+                        out.append((p, True))
         except OSError:
             return []
         out.sort()
@@ -778,9 +853,17 @@ class Tracker:
         return [p for p in out if p not in gone]
 
     @staticmethod
-    def _files_named_in(text: str, sources: dict[str, dict], self_id: str) -> list[str]:
+    def _mentions(text: str, needle: str) -> bool:
+        """*needle* appears in *text* as a whole path or name, not inside a longer one
+        (``data.csv`` is not in ``metadata.csv``; ``b/config.json`` is not in ``sub/config.json``)."""
+        if not needle or needle not in text:  # cheap test first: most sources are not named at all
+            return False
+        return re.search(r"(?<![A-Za-z0-9_.\-])" + re.escape(needle) + r"(?![A-Za-z0-9_])", text) is not None
+
+    @classmethod
+    def _files_named_in(cls, text: str, sources: dict[str, dict], self_id: str) -> list[str]:
         """Source files the artifact's text names: by full path, by a path suffix (``b/config.json``),
-        or by bare file name only when no other source shares that name."""
+        or by bare file name (longer than 3 characters) only when no other source shares that name."""
         files = [(sid, n["path"]) for sid, n in sources.items()
                  if n.get("kind") == "file" and sid != self_id and n.get("path")]
         by_name: dict[str, list[tuple[str, str]]] = {}
@@ -788,22 +871,22 @@ class Tracker:
             by_name.setdefault(os.path.basename(p), []).append((sid, p))
         out: list[str] = []
         for name, group in by_name.items():
-            if not name or len(name) <= 3:
-                continue
-            exact = [sid for sid, p in group if p in text]
+            exact = [sid for sid, p in group if cls._mentions(text, p)]
             if exact:
                 out.extend(exact)
                 continue
-            if name not in text:
+            if not name or len(name) <= 3 or not cls._mentions(text, name):
                 continue
-            if len(group) == 1:
-                out.append(group[0][0])
-                continue
-            # Same name in several folders: only a longer path suffix in the text can tell them apart.
+            # the longest path suffix that the text names decides; ties mean ambiguous
+            hits = []
             for sid, p in group:
                 parts = Path(p).parts
-                if any(os.path.join(*parts[-k:]) in text for k in range(2, min(len(parts), 4) + 1)):
-                    out.append(sid)
+                best = max((k for k in range(2, min(len(parts), 4) + 1) if cls._mentions(text, os.path.join(*parts[-k:]))), default=1)
+                hits.append((best, sid))
+            top = max(b for b, _ in hits)
+            winners = [sid for b, sid in hits if b == top]
+            if len(group) == 1 or (top > 1 and len(winners) == 1):
+                out.extend(winners)
         return out
 
     def _paths_created_during(self, text: str, cwd: Optional[str], started: float) -> list[str]:

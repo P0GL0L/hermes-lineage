@@ -39,9 +39,8 @@ def sha256_file(path: str | os.PathLike[str]) -> tuple[str | None, int | None]:
     return h.hexdigest(), size
 
 
-from .redact import SECRET_PARAM
+from .redact import mask_query_secrets
 
-_QUERY_SECRET_RE = re.compile(r"(?i)(^|[?&])(" + SECRET_PARAM + r"=)([^&#]*)")
 _PATH_SECRET_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{30,}")
 
 
@@ -66,7 +65,7 @@ def normalize_url(url: str) -> str:
     path = _PATH_SECRET_RE.sub("\u00abredacted\u00bb", parts.path or "/")
     if len(path) > 1 and path.endswith("/"):
         path = path[:-1]
-    query = _QUERY_SECRET_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}\u00abredacted\u00bb", parts.query or "")
+    query = mask_query_secrets("?" + parts.query, "\u00abredacted\u00bb")[1:] if parts.query else ""
     return urlunsplit((scheme, netloc, path, query, ""))
 
 

@@ -60,12 +60,36 @@ _PEM_RE = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
     re.DOTALL,
 )
-# user:password@ in any scheme (https, postgres, redis, amqp, ftp, …)
-_URL_CRED_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)([^/\s:@]+):([^/\s@]+)@")
-# Query parameters whose *name* says credential: api_key, X-Amz-Signature, X-Amz-Security-Token,
-# client_secret, refresh_token, sig, code, … (a harmless one masked is fine; a secret stored is not)
-SECRET_PARAM = r"[A-Za-z0-9_.-]*(?:key|token|secret|signature|sig|password|passwd|pwd|credential|session|sid|code|auth)[A-Za-z0-9_.-]*"
-_URL_QUERY_SECRET_RE = re.compile(r"(?i)([?&]" + SECRET_PARAM + r"=)([^&\s#\"'`]+)")
+# user:password@ (or :password@ with no user) in any scheme (https, postgres, redis, amqp, ftp, …)
+_URL_CRED_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)([^/\s:@]*):([^/\s@]+)@")
+# Query parameters whose *name* says credential. Names are split into words (``X-Amz-Signature`` →
+# x, amz, signature; ``accessToken`` → access, token) and matched word by word, so ``author``,
+# ``keyword`` and ``zipcode`` are left alone while ``client_secret`` and ``apiKey`` are masked.
+_SECRET_WORDS = frozenset({
+    "key", "apikey", "token", "secret", "signature", "sig", "password", "passwd", "pwd", "pass",
+    "credential", "credentials", "session", "sessionid", "sid", "code", "auth", "jwt", "otp", "hmac",
+})
+_QUERY_PARAM_RE = re.compile(r"([?&])([^=&#\s\"'`]+)=([^&#\s\"'`]*)")
+
+
+def _name_words(name: str) -> list[str]:
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(name))
+    return [w for w in re.split(r"[\s_.\-\[\]]+", spaced.lower()) if w]
+
+
+def is_secret_param_name(name: str) -> bool:
+    words = _name_words(name)
+    return any(w in _SECRET_WORDS for w in words) or "".join(words) in _SECRET_WORDS
+
+
+def mask_query_secrets(query_or_text: str, mask: str = "«redacted»") -> str:
+    """Mask the values of credential-named query parameters wherever ``?name=`` / ``&name=`` appears."""
+    def sub(m: re.Match) -> str:
+        return f"{m.group(1)}{m.group(2)}={mask}" if m.group(3) and is_secret_param_name(m.group(2)) else m.group(0)
+
+    return _QUERY_PARAM_RE.sub(sub, query_or_text)
+
+
 # Tokens carried in a URL path, e.g. Telegram's https://api.telegram.org/bot<id>:<secret>/getUpdates
 _PATH_TOKEN_RE = re.compile(r"(/bot|(?<![A-Za-z0-9]))(\d{6,}:[A-Za-z0-9_-]{30,})")
 
@@ -92,7 +116,7 @@ def redact_text(text: str) -> str:
         return text
     out = _PEM_RE.sub(MASK, text)
     out = _URL_CRED_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}:{MASK}@", out)
-    out = _URL_QUERY_SECRET_RE.sub(lambda m: f"{m.group(1)}{MASK}", out)
+    out = mask_query_secrets(out, MASK)
     out = _PATH_TOKEN_RE.sub(lambda m: f"{m.group(1) or ''}{MASK}", out)
     out = _ENV_ASSIGN_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}{MASK}{m.group(4)}", out)
     out = _BEARER_RE.sub(lambda m: f"{m.group(1)} {MASK}", out)
@@ -155,4 +179,4 @@ def bound_args(args: Any, *, per_value: int = 400, total: int = 4000, depth: int
     return preview(args, per_value)
 
 
-__all__ = ["MASK", "SECRET_PARAM", "redact_text", "preview", "bound_args", "is_secret_arg_name"]
+__all__ = ["MASK", "is_secret_param_name", "mask_query_secrets", "redact_text", "preview", "bound_args", "is_secret_arg_name"]

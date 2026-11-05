@@ -751,42 +751,56 @@ class Store:
         return {"counts": counts, "edges_by_basis": basis, "last_activity": last, "db_bytes": db_bytes, "db_path": str(self.path)}
 
     def prune(self, before: float) -> dict:
-        """Delete sessions (and what only they used) that ended before *before*.
+        """Delete sessions that ended before *before*, and everything only they used.
 
-        A node belongs to the session that first saw it, but a later session may still read it or cite
-        it: a node linked to anything outside the pruned sessions is handed to the newest such session
-        and kept, with its versions."""
+        A node belongs to the session that first saw it, but a newer session may still read or cite it.
+        Such a node is kept *with its own session*: the session row, its turns and its agent node stay,
+        so a kept artifact is still credited to the agent that made it, never to the one that read it."""
         with self._tx():
-            sess = [r["id"] for r in self._conn.execute(
+            candidates = [r["id"] for r in self._conn.execute(
                 "SELECT id FROM sessions WHERE COALESCE(ended_at, started_at) < ?", (before,)
             )]
-            pruned = set(sess)
-            removed_nodes = kept = 0
-            for sid in sess:
-                ids = [r["id"] for r in self._conn.execute("SELECT id FROM nodes WHERE session_id=?", (sid,))]
-                for nid in ids:
+            pruned = set(candidates)
+            marks = ",".join("?" for _ in pruned) or "''"
+            kept: set[str] = set()
+            keep_sessions: set[str] = set()
+            for sid in candidates:
+                for r in self._conn.execute("SELECT id FROM nodes WHERE session_id=? AND kind NOT IN ('agent','turn')", (sid,)).fetchall():
+                    nid = r["id"]
                     heir = self._conn.execute(
                         "SELECT o.session_id AS sid FROM edges e JOIN nodes o ON o.id = CASE WHEN e.src=? THEN e.dst ELSE e.src END"
-                        " WHERE (e.src=? OR e.dst=?) AND o.session_id IS NOT NULL AND o.session_id NOT IN (%s)"
-                        " ORDER BY o.updated_at DESC LIMIT 1" % ",".join("?" for _ in pruned),
+                        " WHERE (e.src=? OR e.dst=?) AND o.session_id IS NOT NULL AND o.session_id NOT IN (" + marks + ")"
+                        " ORDER BY o.updated_at DESC LIMIT 1",
                         (nid, nid, nid, *pruned),
                     ).fetchone()
-                    if heir is not None:
-                        self._conn.execute("UPDATE nodes SET session_id=? WHERE id=?", (heir["sid"], nid))
-                        kept += 1
+                    if heir is None:
                         continue
+                    kept.add(nid)
+                    produced = self._conn.execute("SELECT produced FROM nodes WHERE id=?", (nid,)).fetchone()["produced"]
+                    if produced:
+                        keep_sessions.add(sid)  # an artifact stays credited to the session that made it
+                    else:
+                        # a page, query or read file has no author to protect: the newest user adopts it
+                        self._conn.execute("UPDATE nodes SET session_id=? WHERE id=?", (heir["sid"], nid))
+            removed_nodes = 0
+            for sid in candidates:
+                ids = [r["id"] for r in self._conn.execute("SELECT id, kind FROM nodes WHERE session_id=?", (sid,))
+                       if r["id"] not in kept and not (sid in keep_sessions and r["kind"] == "agent")]
+                for nid in ids:
                     self._conn.execute("DELETE FROM edges WHERE src=? OR dst=?", (nid, nid))
                     self._conn.execute("DELETE FROM versions WHERE node_id=?", (nid,))
                     self._conn.execute("DELETE FROM nodes WHERE id=?", (nid,))
-                    removed_nodes += 1
-                self._conn.execute("DELETE FROM turns WHERE session_id=?", (sid,))
-                self._conn.execute("DELETE FROM sessions WHERE id=?", (sid,))
+                removed_nodes += len(ids)
+                if sid not in keep_sessions:
+                    self._conn.execute("DELETE FROM turns WHERE session_id=?", (sid,))
+                    self._conn.execute("DELETE FROM sessions WHERE id=?", (sid,))
         try:
             with self._lock:
                 self._conn.execute("VACUUM")
         except sqlite3.DatabaseError:
             pass
-        return {"sessions": len(sess), "nodes": removed_nodes, "kept_shared": kept}
+        return {"sessions": len(pruned - keep_sessions), "nodes": removed_nodes, "kept_shared": len(kept),
+                "sessions_kept_for_shared_nodes": len(keep_sessions)}
 
     # ----------------------------------------------------------------- helpers
     @staticmethod

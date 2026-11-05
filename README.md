@@ -89,7 +89,7 @@ The honest part. Most provenance tooling draws one arrow and calls it "derived f
 |---|---|---|---|
 | ● | **observed** | Hermes reported it: `write_file` wrote this path; this tool call came out of that model request; this child agent was spawned by that turn. | thick accent line |
 | ◉ | **evidenced** | The artifact's own bytes name the source — a URL that was fetched this session, or the path of a file that was read. | solid line |
-| ○ | **inferred** | The source was read earlier in the same turn (confidence 0.6) or in a recent turn of the session (0.35). A dashed edge says *read earlier*, not *used*. | dashed line |
+| ○ | **inferred** | lineage worked it out, and says from what: a file that changed in the working tree during a shell command (0.8), a file with the same bytes as a moved or copied artifact (0.9), a file or URL named in a command (0.5), a source read earlier in the same turn (0.6) or a recent turn (0.35). A dashed edge says *likely*, not *certain*. | dashed line |
 
 ## The receipt
 

@@ -39,9 +39,11 @@ guards itself twice: a provenance recorder that can interrupt the agent is worse
 | `skill` | `skill:<name>` | `skill_view` |
 
 URL ids are normalized: scheme and host lowercased, `www.` and fragments dropped, userinfo removed,
-query values whose *name* says credential masked (`token`, `key`, `sig`, `X-Amz-Signature`,
-`X-Amz-Security-Token`, `client_secret`, `code`, …), and tokens carried in the path (Telegram's
-`/bot<id>:<secret>/`) masked. The same rules, plus `user:password@` in any scheme (`postgres://`,
+query values whose *name* says credential masked — names are split into words (`X-Amz-Signature` →
+x, amz, signature; `accessToken` → access, token) and a word like `key`, `token`, `secret`, `sig`,
+`signature`, `password`, `credential`, `session`, `code` or `auth` masks the value, while `author`,
+`keyword` or `zipcode` do not — and tokens carried in the path (Telegram's
+`/bot<id>:<secret>/`) masked. The same rules, plus `user:password@` (or `:password@`) in any scheme (`postgres://`,
 `redis://`…), apply to every preview, label and argument lineage stores; arguments whose name says
 credential (`accessToken`, `client_secret`, `Authorization`…) are stored as `«redacted»`.
 
@@ -65,7 +67,7 @@ When the same pair is linked more than once, the stronger basis wins and the wea
 | `write_file` | `args.path` | observed |
 | `patch` (replace mode) | `args.path` | observed |
 | `patch` (V4A multi-file, OpenAI-family models) | `*** Update File:` / `*** Add File:` targets and `*** Move File: a -> b` destinations (Hermes's own header grammar); deleted files and move sources are not artifacts | observed |
-| `terminal`, `execute_code` | one bounded walk of the working directory after the call; every regular file whose mtime *or* ctime falls inside the call's window (ctime catches `mv`), credential files excepted. Recorded even when the command exits non-zero — its outputs are real | inferred (0.8) |
+| `terminal`, `execute_code` | one bounded walk of the working directory after the call: every regular file whose mtime falls inside the call's window, plus a file whose only change is its ctime when it carries the bytes of an artifact whose own path is gone (`mv`; a `chmod` is not a write). Also the command's named outputs anywhere on disk (`> f`, `>> f`, `tee f`, `-o f`) if they changed during the call. Credential files are skipped. Recorded when the command ran and exited non-zero (Hermes reports a positive `exit_code`); a blocked or rejected command (`exit_code` -1 or none) records nothing | inferred (0.8) |
 | any other tool | a path named in the tool's result that exists and was modified during the call (image generators, converters, MCP tools) | inferred |
 
 The terminal walk is bounded by `snapshot_max_files` (6000) and `snapshot_max_seconds` (0.5); a tree
@@ -74,10 +76,12 @@ that is too big or too slow yields nothing rather than a slow hook. At most `max
 `node_modules`, build output and the like are skipped; `.pyc`, `.lock`, `.tmp` and `.receipt.json`
 are never artifacts.
 
-A failed `write_file`/`patch`/read records nothing. A file found by the walk with the same bytes as an
-earlier artifact is linked to it (*same bytes as …, moved or copied*), so `mv draft.md final.md`
-keeps its lineage. When an artifact is rewritten with new bytes, its sources are re-derived from
-scratch: a receipt describes the version on disk; earlier hashes stay in `versions`.
+A failed `write_file`/`patch`/read records nothing. An artifact with the same bytes (32 bytes or
+more) as an artifact whose path is gone, or as one this session made, is linked to it as *inferred
+0.9 — same bytes as … (moved / copied)*, so `mv draft.md final.md` keeps its lineage. When an artifact
+gets new bytes its sources are re-derived: a source its text still names stays *evidenced* (whichever
+session read it), the rest are dropped. A receipt describes the version on disk; earlier hashes stay
+in `versions`.
 
 ## What counts as a source
 
@@ -87,7 +91,7 @@ scratch: a receipt describes the version on disk; earlier hashes stay in `versio
 | `web_search` | the query node, plus every URL it returned (`returned` edges) |
 | `web_extract` | each URL, with a SHA-256 of the extracted content and the fetch time |
 | `skill_view` | the skill |
-| `terminal`, `execute_code` | existing files and URLs named in the command or code (inferred), except the call's own outputs and credential files (`~/.ssh`, `~/.gnupg`, `~/.aws`, `.env*`, `*.pem`, `*.key`, `id_rsa`…), which are never opened on a guess |
+| `terminal`, `execute_code` | existing files and URLs named in the command or code (inferred), except the call's own outputs (`> f`, `tee f`, `-o f`, files it changed) and credential files (`~/.ssh`, `~/.gnupg`, `~/.aws`, `.env*`, `*.pem`, `*.key`, `id_rsa`…), which are never opened on a guess |
 | anything else | URLs anywhere in the arguments; files named by `path`, `file`, `input`, `source`, `paths`, `files` |
 
 ## Evidence scan
@@ -129,8 +133,9 @@ never replaces it, so an edit by someone else stays visible (what the read saw i
 
 `hermes lineage check x.md.receipt.json` checks the file *beside* the receipt (`x.md`), never the path
 the receipt was issued for, so a copied pair is checked as it travels. `ok` needs the bytes to match,
-the receipt body to match its digest, and the signature to be valid or not checkable on this install;
-an `INVALID` signature always fails.
+the receipt body to match its digest, and a signature that is `valid` — or `other install` (made with
+a key this install doesn't hold: internally consistent, not authenticated). `absent` and `INVALID`
+always fail; every receipt lineage writes is signed.
 
 ## What is stored, and what is not
 
@@ -138,10 +143,11 @@ an `INVALID` signature always fails.
   like credentials (`api_key`, `token`, `password`, `headers`, `cookie`…) are masked outright.
 * Previews of prompts, replies and results are single-line, ≤ 200–240 chars, redacted.
 * Redaction masks vendor key prefixes, `key=value` and `key: value` credential pairs, `Bearer …`,
-  PEM blocks, `FOO_TOKEN=…` in shell text, `user:pass@` in URLs and credential-shaped query values.
+  PEM blocks, `FOO_TOKEN=…` in shell text, `user:pass@` in URLs of any scheme, credential-named query values and tokens in URL paths.
 * `store_previews: false` keeps ids, hashes, sizes and timestamps only.
 * The database is `<HERMES_HOME>/plugin-data/lineage/lineage.db` (SQLite, WAL). `hermes lineage prune
-  --days N` deletes old sessions and everything hanging off them.
+  --days N` deletes old sessions and everything only they used. A page or file a newer session still
+  uses moves to that session; an artifact a newer session still uses keeps the session that made it.
 
 ## Desktop half
 

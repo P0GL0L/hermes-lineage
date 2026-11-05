@@ -180,7 +180,8 @@ def test_7b_a_rename_keeps_lineage(plugin, session_factory, workspace):
     final = workspace / "final.md"
     rc = R.build_receipt(st, str(final))
     assert rc is not None and rc["artifact"]["sha256"] == hashlib.sha256(body.encode()).hexdigest()
-    assert any(x["locator"] == str(a) and "moved or copied" in (x["reason"] or "") for x in rc["sources"]), rc["sources"]
+    assert any(x["locator"] == str(a) and "same bytes as draft.md (moved)" == x["reason"] and x["basis"] == "inferred"
+               for x in rc["sources"]), rc["sources"]
 
 
 def test_8_v4a_move_and_delete_and_evidence_from_the_final_file(plugin, session_factory, workspace):
