@@ -136,10 +136,15 @@ The unified package ships `desktop/plugin.js` (SDK only: `@hermes/plugin-sdk` an
 * Working trees larger than `snapshot_max_files` (or slower than `snapshot_max_seconds` to walk) are not scanned after terminal calls; `write_file`/`patch` attribution still works there. A file another process modifies during a terminal call's window can be attributed to that call.
 * URL content hashes are of Hermes's extracted text; raw re-fetches establish their own baseline (see Verify).
 * The signature proves which install issued a receipt, nothing more.
+* Under `plugins.isolation: host`, Hermes runs user plugins in a separate host process: the Desktop backend is still served (responses are buffered) and `/lineage` still works, but `ctx.register_cli_command` is not wired there, so `hermes lineage …` is unavailable until the plugin runs in-process (the default).
 
 ## Disclosure
 
 Hooks only (`post_tool_call`, `pre_llm_call`, `post_llm_call`, `post_api_request`, `api_request_error`, `post_auxiliary_call`, `subagent_start`, `subagent_stop`, `on_session_start`, `on_session_end`); no tools, no middleware, no LLM calls, no credentials. Runs no commands. Reads files the agent wrote (to hash them, up to 32 MB, and scan their text for sources, up to 512 KB) and stats the working tree once after `terminal`/`execute_code` calls (bounded by file count and time). Receipts and verify apply only to files the agent produced, never to files it only read. Writes only under `<HERMES_HOME>/plugin-data/lineage/` (SQLite store, `install.key`) and, on request or with `sidecar: true`, `<file>.receipt.json` beside artifacts. Stores redacted, bounded previews of prompts, tool arguments and results (`store_previews: false` turns previews off). Network only when you run `verify --refetch` or press *Verify + refetch URLs*, and then only `GET` to the recorded source URLs on public hosts (loopback, private and link-local addresses are refused, through Hermes's own `is_safe_url` when available). No telemetry.
+
+## Validated
+
+`hermes plugins validate` on Hermes Agent v0.22.7 (macOS): every check passes — manifest, requires_hermes, config schema, loadable, capability probe, declared tools/hooks/middleware, built-in collisions, security scan *safe*, no core override, desktop surface inside the SDK. A live task on that install produced a tracked artifact whose receipt verified with `hermes lineage check`.
 
 ## Development
 
