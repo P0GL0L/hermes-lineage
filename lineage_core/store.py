@@ -754,8 +754,9 @@ class Store:
         """Delete sessions that ended before *before*, and everything only they used.
 
         A node belongs to the session that first saw it, but a newer session may still read or cite it.
-        Such a node is kept *with its own session*: the session row, its turns and its agent node stay,
-        so a kept artifact is still credited to the agent that made it, never to the one that read it."""
+        A page, query or file it only read moves to the newest session that uses it. A session that made
+        an artifact still in use is not pruned at all, so the artifact keeps its producer, sources and
+        agent — it is never re-credited to a session that only read it."""
         with self._tx():
             candidates = [r["id"] for r in self._conn.execute(
                 "SELECT id FROM sessions WHERE COALESCE(ended_at, started_at) < ?", (before,)
@@ -784,16 +785,17 @@ class Store:
                         self._conn.execute("UPDATE nodes SET session_id=? WHERE id=?", (heir["sid"], nid))
             removed_nodes = 0
             for sid in candidates:
-                ids = [r["id"] for r in self._conn.execute("SELECT id, kind FROM nodes WHERE session_id=?", (sid,))
-                       if r["id"] not in kept and not (sid in keep_sessions and r["kind"] == "agent")]
+                if sid in keep_sessions:
+                    continue  # it made an artifact still in use: keep its whole record (producer, sources, turns)
+                ids = [r["id"] for r in self._conn.execute("SELECT id FROM nodes WHERE session_id=?", (sid,))
+                       if r["id"] not in kept]
                 for nid in ids:
                     self._conn.execute("DELETE FROM edges WHERE src=? OR dst=?", (nid, nid))
                     self._conn.execute("DELETE FROM versions WHERE node_id=?", (nid,))
                     self._conn.execute("DELETE FROM nodes WHERE id=?", (nid,))
                 removed_nodes += len(ids)
-                if sid not in keep_sessions:
-                    self._conn.execute("DELETE FROM turns WHERE session_id=?", (sid,))
-                    self._conn.execute("DELETE FROM sessions WHERE id=?", (sid,))
+                self._conn.execute("DELETE FROM turns WHERE session_id=?", (sid,))
+                self._conn.execute("DELETE FROM sessions WHERE id=?", (sid,))
         try:
             with self._lock:
                 self._conn.execute("VACUUM")

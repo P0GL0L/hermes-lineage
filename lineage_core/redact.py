@@ -65,10 +65,11 @@ _URL_CRED_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)([^/\s:@]*):([^/\s@]+)@"
 # Query parameters whose *name* says credential. Names are split into words (``X-Amz-Signature`` →
 # x, amz, signature; ``accessToken`` → access, token) and matched word by word, so ``author``,
 # ``keyword`` and ``zipcode`` are left alone while ``client_secret`` and ``apiKey`` are masked.
-_SECRET_WORDS = frozenset({
-    "key", "apikey", "token", "secret", "signature", "sig", "password", "passwd", "pwd", "pass",
-    "credential", "credentials", "session", "sessionid", "sid", "code", "auth", "jwt", "otp", "hmac",
-})
+# Unambiguous fragments: masked wherever they occur in the joined name (authtoken, secretkey, apiKey2).
+_SECRET_FRAGMENTS = ("token", "secret", "password", "passwd", "apikey", "signature", "credential",
+                     "accesskey", "privatekey", "sessionid", "sessiontoken", "clientsecret")
+# Short words that are secrets only as a whole word (digits ignored): api_key, x-api-key, key2, sig, auth.
+_SECRET_WORDS = frozenset({"key", "sig", "pwd", "pass", "auth", "jwt", "otp", "hmac", "sid", "session"})
 _QUERY_PARAM_RE = re.compile(r"([?&])([^=&#\s\"'`]+)=([^&#\s\"'`]*)")
 
 
@@ -78,8 +79,16 @@ def _name_words(name: str) -> list[str]:
 
 
 def is_secret_param_name(name: str) -> bool:
-    words = _name_words(name)
-    return any(w in _SECRET_WORDS for w in words) or "".join(words) in _SECRET_WORDS
+    """``client_secret``, ``X-Amz-Signature``, ``authtoken``, ``apiKey2``, ``code`` (OAuth) → True;
+    ``author``, ``keyword``, ``zipcode``, ``country_code``, ``promo_code`` → False."""
+    words = [w.rstrip("0123456789") for w in _name_words(name)]
+    joined = "".join(words)
+    if any(f in joined for f in _SECRET_FRAGMENTS):
+        return True
+    if any(w in _SECRET_WORDS for w in words):
+        return True
+    # "code" only as the OAuth authorization code itself
+    return words in (["code"], ["auth", "code"], ["authorization", "code"])
 
 
 def mask_query_secrets(query_or_text: str, mask: str = "«redacted»") -> str:

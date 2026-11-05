@@ -517,8 +517,10 @@ def verify_receipt_file(receipt_path: str) -> dict:
     The receipt names the path it was issued for, but a copy travels: what is checked is the file next
     to the receipt (``x.md`` for ``x.md.receipt.json``), never the original path, which may be somewhere
     else entirely. ``ok`` needs the bytes to match, the receipt body to hash to its recorded digest,
-    and a signature that is valid — or made with another install's key, which this install cannot
-    check. A missing or INVALID signature always fails: every receipt lineage writes is signed."""
+    and a *valid* signature — which only the install that issued the receipt can check. Anyone can
+    write a signature claiming some other key, so on another install ``ok`` is false and
+    ``file_matches_receipt`` says what can be known there: the file is the one the receipt describes,
+    and the receipt is internally consistent. Neither authenticates its contents."""
     p = Path(receipt_path)
     try:
         receipt = json.loads(p.read_text(encoding="utf-8"))
@@ -533,7 +535,8 @@ def verify_receipt_file(receipt_path: str) -> dict:
     body_ok = _receipt_hash_ok(receipt)
     sig = signature_status(receipt)
     out = {
-        "ok": bool(sha) and sha == art.get("sha256") and body_ok is True and sig in ("valid", "other install"),
+        "ok": bool(sha) and sha == art.get("sha256") and body_ok is True and sig == "valid",
+        "file_matches_receipt": bool(sha) and sha == art.get("sha256") and body_ok is True,
         "receipt": str(p),
         "artifact": target,
         "issued_for": art.get("path"),
@@ -547,6 +550,9 @@ def verify_receipt_file(receipt_path: str) -> dict:
     }
     if sha is None:
         out["error"] = "no file beside the receipt"
+    elif sig == "other install" and out["file_matches_receipt"]:
+        out["note"] = ("signed by another install's key: the file matches this receipt, but only the issuing "
+                       "install can confirm the receipt is genuine")
     return out
 
 

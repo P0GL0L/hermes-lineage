@@ -46,14 +46,14 @@ q3-note.md  (d41d886bb02e…, 395 bytes)
   ● observed  ◉ evidenced  ○ inferred
 ```
 
-Write the receipt next to the file, and check it with no database and no Hermes at all:
+Write the receipt next to the file, and check it without the database. On the install that issued it, `ok` means the file and the receipt are both genuine; anywhere else, `file_matches_receipt` says the file is the one the receipt describes:
 
 ```
 $ hermes lineage receipt q3-note.md --write
 wrote q3-note.md.receipt.json
 
 $ hermes lineage check q3-note.md.receipt.json
-{ "ok": true, "artifact_sha256_matches": true, "receipt_sha256_matches": true, "signature": "valid", "sources": 2 }
+{ "ok": true, "file_matches_receipt": true, "artifact_sha256_matches": true, "receipt_sha256_matches": true, "signature": "valid", "sources": 2 }
 ```
 
 Change the CSV under it, and the note goes stale:

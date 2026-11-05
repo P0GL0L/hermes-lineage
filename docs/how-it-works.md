@@ -67,7 +67,7 @@ When the same pair is linked more than once, the stronger basis wins and the wea
 | `write_file` | `args.path` | observed |
 | `patch` (replace mode) | `args.path` | observed |
 | `patch` (V4A multi-file, OpenAI-family models) | `*** Update File:` / `*** Add File:` targets and `*** Move File: a -> b` destinations (Hermes's own header grammar); deleted files and move sources are not artifacts | observed |
-| `terminal`, `execute_code` | one bounded walk of the working directory after the call: every regular file whose mtime falls inside the call's window, plus a file whose only change is its ctime when it carries the bytes of an artifact whose own path is gone (`mv`; a `chmod` is not a write). Also the command's named outputs anywhere on disk (`> f`, `>> f`, `tee f`, `-o f`) if they changed during the call. Credential files are skipped. Recorded when the command ran and exited non-zero (Hermes reports a positive `exit_code`); a blocked or rejected command (`exit_code` -1 or none) records nothing | inferred (0.8) |
+| `terminal`, `execute_code` | one bounded walk of the working directory after the call: every regular file whose mtime falls inside the call's window, plus a file whose only change is its ctime when it carries the bytes of an artifact whose own path is gone (`mv`; a `chmod` is not a write). Also the command's named outputs anywhere on disk (`> f`, `>> f`, `tee f`, `--output f`, and `-o f` for curl, gcc, go, pandoc and similar) if they changed during the call. Credential files are skipped. Also recorded when the command failed, timed out or was interrupted — it ran; a command Hermes marks blocked, pending approval or disabled records nothing | inferred (0.8) |
 | any other tool | a path named in the tool's result that exists and was modified during the call (image generators, converters, MCP tools) | inferred |
 
 The terminal walk is bounded by `snapshot_max_files` (6000) and `snapshot_max_seconds` (0.5); a tree
@@ -133,9 +133,10 @@ never replaces it, so an edit by someone else stays visible (what the read saw i
 
 `hermes lineage check x.md.receipt.json` checks the file *beside* the receipt (`x.md`), never the path
 the receipt was issued for, so a copied pair is checked as it travels. `ok` needs the bytes to match,
-the receipt body to match its digest, and a signature that is `valid` — or `other install` (made with
-a key this install doesn't hold: internally consistent, not authenticated). `absent` and `INVALID`
-always fail; every receipt lineage writes is signed.
+the receipt body to match its digest, and a `valid` signature — which only the issuing install can
+check, since anyone can write a signature that claims some other key. On another install `ok` is
+false and `file_matches_receipt` reports what can be known there (the file is the one described, the
+receipt is internally consistent); `signature` reads `other install`, `absent` or `INVALID`.
 
 ## What is stored, and what is not
 

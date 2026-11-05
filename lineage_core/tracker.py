@@ -483,7 +483,7 @@ class Tracker:
         # A failed write or read touched nothing. A shell command is different: `pytest --junitxml=r.xml`
         # or a build that writes its output and then exits 1 is reported as an error, yet the files it
         # wrote are real, so terminal/execute_code are always scanned for changed files.
-        if status != "ok" and not (tool in EXEC_TOOLS and self._command_ran(result_text)):
+        if status != "ok" and not (tool in EXEC_TOOLS and self._command_ran(result_text, status)):
             return
 
         with self.store.batch():
@@ -562,19 +562,33 @@ class Tracker:
 
     _REDIRECT_RE = re.compile(r"(?:^|[\s;&|(])(?:\d?>>?|&>>?)\s*([^\s;&|<>()]+)")
     _TEE_RE = re.compile(r"\btee\s+(?:-[a-z]+\s+)*([^\s;&|<>()]+)")
-    _OUTPUT_FLAG_RE = re.compile(r"(?:\s-o|\s--output|\s--out|\s--output-file)(?:\s+|=)([^\s;&|<>()]+)")
+    _OUTPUT_LONG_RE = re.compile(r"\s--(?:output|out|output-file|outfile)(?:\s+|=)([^\s;&|<>()]+)")
+    _OUTPUT_SHORT_RE = re.compile(r"\s-[oO](?:\s+|=)?([^\s;&|<>()-][^\s;&|<>()]*)")
+    # Programs where -o / -O names the output file. Elsewhere it means something else
+    # (unzip -o overwrite, grep -o only-matching, ssh -o option, ls -o long listing).
+    _OUTPUT_SHORT_PROGRAMS = frozenset({
+        "curl", "wget", "gcc", "g++", "cc", "c++", "clang", "clang++", "rustc", "nvcc", "go", "pandoc",
+        "dot", "mmdc", "yt-dlp", "youtube-dl", "sort", "pdflatex", "xelatex", "tsc", "esbuild", "zig",
+    })
 
     def _command_outputs(self, command: str, cwd: Optional[str]) -> list[str]:
-        """Files a shell command names as its output: ``> f``, ``>> f``, ``2> f``, ``tee f``, ``-o f``."""
+        """Files a shell command names as its output: ``> f``, ``>> f``, ``2> f``, ``tee f``, ``--output f``,
+        and ``-o f`` for programs where -o means output (curl, gcc, go build, pandoc, …)."""
         out: list[str] = []
-        for rx in (self._REDIRECT_RE, self._TEE_RE, self._OUTPUT_FLAG_RE):
-            for m in rx.finditer(command or ""):
-                t = m.group(1).strip("'\"")
-                if not t or t.startswith(("&", "/dev/")) or "$" in t:
-                    continue
-                p = resolve_path(t, cwd)
-                if p not in out:
-                    out.append(p)
+        matches = []
+        for rx in (self._REDIRECT_RE, self._TEE_RE, self._OUTPUT_LONG_RE):
+            matches.extend(m.group(1) for m in rx.finditer(command or ""))
+        for segment in re.split(r"[;&|]+", command or ""):
+            words = segment.split()
+            if words and os.path.basename(words[0]) in self._OUTPUT_SHORT_PROGRAMS:
+                matches.extend(m.group(1) for m in self._OUTPUT_SHORT_RE.finditer(" " + segment))
+        for raw in matches:
+            t = raw.strip("'\"")
+            if not t or t.startswith(("&", "/dev/")) or "$" in t:
+                continue
+            p = resolve_path(t, cwd)
+            if p not in out:
+                out.append(p)
         return out[:20]
 
     def _moved_artifact(self, abs_path: str) -> bool:
@@ -585,16 +599,31 @@ class Tracker:
         return any(t.get("produced") and t.get("path") and not os.path.exists(t["path"])
                    for t in self.store.nodes_with_sha(sha, exclude=f"file:{abs_path}"))
 
-    @staticmethod
-    def _command_ran(result_text: str) -> bool:
-        """A failed shell call whose command actually ran: Hermes reports a positive ``exit_code``. A
-        blocked, rejected or un-runnable command reports -1 (or no exit code) and wrote nothing."""
-        try:
-            data = json.loads(result_text) if result_text else None
-        except Exception:
+    _NOT_RUN = frozenset({"blocked", "pending_approval", "disabled", "rejected", "denied"})
+
+    @classmethod
+    def _command_ran(cls, result_text: str, status: str = "error") -> bool:
+        """Whether a shell call that reported an error actually ran (and so may have written files).
+
+        Failed, timed out (``exit_code`` -1 from an execute_code cell) and interrupted commands ran. Hermes
+        marks the ones that never did: a ``blocked`` hook status, or a result whose ``status`` is
+        blocked / pending_approval / disabled, an approval ``user_summary``, or a BLOCKED message."""
+        if status in cls._NOT_RUN:
             return False
-        code = data.get("exit_code") if isinstance(data, dict) else None
-        return isinstance(code, int) and not isinstance(code, bool) and code > 0
+        text = (result_text or "").lstrip()
+        if text.upper().startswith(("BLOCKED", "DENIED")):
+            return False
+        try:
+            data = json.loads(text) if text else None
+        except Exception:
+            return True
+        if isinstance(data, dict):
+            if str(data.get("status") or "").lower() in cls._NOT_RUN or data.get("user_summary"):
+                return False
+            err = str(data.get("error") or "")
+            if data.get("exit_code") == -1 and re.match(r"(?i)\s*(blocked|denied|invalid command|approval)", err):
+                return False
+        return True
 
     # ------------------------------------------------------- consumed inputs
     def _record_consumed(self, tool: str, args: dict, result_text: str, status: str, cwd: Optional[str],

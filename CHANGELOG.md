@@ -33,7 +33,14 @@ From the catalog review (thanks, Teknium) and a second independent review of the
 - File-name matching respects path boundaries (`data.csv` is not in `metadata.csv`) and full paths of short names match again.
 - `check` fails a receipt whose signature was removed (`absent`); a key this install doesn't hold reads `other install`.
 - `prune` never re-credits an artifact to a session that only read it.
-- `redis://:password@` (empty user) is masked; a command's `> /elsewhere/out.md` output is not an input; a blocked command (no positive `exit_code`) records nothing.
+- `redis://:password@` (empty user) is masked; a command's `> /elsewhere/out.md` output is not an input; a blocked command records nothing.
+
+**Third pass.** Five more, all fixed, with `tests/test_round3.py`:
+- `check` accepts only a *valid* signature for `ok`: a made-up signature naming some other key no longer passes. On another install, `file_matches_receipt` reports what can be known there.
+- `prune` keeps the whole record of a session that made an artifact still in use, so its receipt keeps producer and sources.
+- Credential parameter names: `authtoken`, `secretkey`, `apiKey2` are masked again; `country_code` and `promo_code` are not (only the OAuth `code`).
+- `-o` counts as an output only for programs where it means one (curl, gcc, go, pandoc, …), not `unzip -o` or `grep -o`.
+- Timed-out and interrupted commands (`exit_code` -1) ran and may have written files, so they are scanned; only what Hermes marks blocked, pending approval or disabled is skipped.
 
 **Performance**
 - Each tool call's writes go into one SQLite transaction; inferred links per artifact are capped (`turn_max_inferred_sources`, 25 newest). A turn with 400 reads and a command writing 50 files went from 21,753 edges and 8.7 s inside the hook to 1,403 edges and about 0.4 s (measured in this container).
