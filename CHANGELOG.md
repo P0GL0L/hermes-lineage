@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1 — 2026-11-05
+
+Fixes from the first live run on Hermes Agent v0.22.7 (macOS).
+
+- Model-call nodes keep `model`, `provider`, `base_url` and `started_at` from `post_api_request`.
+- Plain-text account shows `0 bytes` for empty files instead of `?`, and omits an unknown provider.
+- Receipts take `last_written_at` from the newest recorded version, not the last metadata update.
+- README: validation result; `plugins.isolation: host` note (CLI subcommand not wired there).
+
 ## 0.1.0 — 2026-11-05
 
 First release, built for the Hermes Agent Plugin Hackathon.
