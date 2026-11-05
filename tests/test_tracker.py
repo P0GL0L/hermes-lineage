@@ -309,3 +309,25 @@ def test_find_urls_drops_escapes_and_xml_namespaces(plugin):
     cmd = 'python3 -c "print(\\"<svg xmlns=\\\\\\"http://www.w3.org/2000/svg\\\\\\">\\")" && curl \\"https://example.com/a\\"'
     assert find_urls(cmd) == ["https://example.com/a"]
     assert find_urls('<svg xmlns="http://www.w3.org/2000/svg"><a xlink:href="https://x.org/p"/></svg>') == ["https://x.org/p"]
+
+
+def test_sources_seen_in_an_earlier_session_still_count(plugin, workspace, session_factory):
+    """A page first fetched in one session is evidence in a later session that fetches it again."""
+    url = "https://example.com/benchmarks/2026"
+    first = session_factory()
+    first.start_turn("look something up")
+    first.tool("web_extract", {"urls": [url]}, {"results": [{"url": url, "title": "B", "content": "Median growth was 18%."}]})
+    first.end_turn("done")
+
+    second = session_factory()
+    second.start_turn("write the note")
+    second.tool("web_extract", {"urls": [url]}, {"results": [{"url": url, "title": "B", "content": "Median growth was 18%."}]})
+    note = workspace / "note.md"
+    note.write_text(f"Growth was 18% ({url}).\\n")
+    second.tool("write_file", {"path": str(note), "content": note.read_text()}, {"success": True})
+    second.end_turn("wrote note.md")
+
+    store = plugin.get_tracker().store
+    node = store.find_file_node(str(note))
+    edges = [e for e in store.edges_from(node["id"]) if e["dst"].startswith("url:")]
+    assert [e["basis"] for e in edges] == ["evidenced"], edges

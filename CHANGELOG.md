@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 — 2026-11-05
+
+- A page or file first seen in an earlier session now counts as this session's source when this session reads it again. Before, evidence matching and the session window only saw nodes created in the current session, so a re-fetched URL that the artifact cites stayed *inferred* instead of *evidenced*.
+
 ## 0.1.2 — 2026-11-05
 
 From the first Desktop session on Hermes Agent v0.22.7 (macOS).

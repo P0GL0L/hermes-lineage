@@ -445,16 +445,41 @@ class Store:
         return [self._row(r) for r in rows]
 
     def consumed_in_session(self, session_id: str, *, since: Optional[float] = None, limit: int = 500) -> list[dict]:
-        sql = "SELECT * FROM nodes WHERE session_id=? AND consumed=1 AND kind IN ('file','url','query','memory','skill')"
+        """Sources this session read, newest read first, each with the turn that read it.
+
+        A node keeps the ids of the session that first saw it, so a page or file read again in a later
+        session is found through that session's own ``read`` edges, not through the node's columns."""
+        kinds = "('file','url','query','memory','skill')"
+        own = ("SELECT n.*, n.turn_id AS _read_turn, n.updated_at AS _read_at FROM nodes n"
+               " WHERE n.session_id=? AND n.consumed=1 AND n.kind IN " + kinds)
+        via = ("SELECT n.*, e.turn_id AS _read_turn, e.created_at AS _read_at FROM edges e"
+               " JOIN nodes t ON t.id=e.src AND t.kind='tool_call' AND t.session_id=?"
+               " JOIN nodes n ON n.id=e.dst"
+               " WHERE e.rel='read' AND n.kind IN " + kinds)
         params: list[Any] = [session_id]
         if since:
-            sql += " AND updated_at>=?"
-            params.append(since)
-        sql += " ORDER BY updated_at DESC LIMIT ?"
-        params.append(limit)
+            own += " AND n.updated_at>=?"
+            via += " AND e.created_at>=?"
+            params = [session_id, since, session_id, since]
+        else:
+            params = [session_id, session_id]
         with self._lock:
-            rows = self._conn.execute(sql, params).fetchall()
-        return [self._row(r) for r in rows]
+            rows = self._conn.execute(own + " UNION ALL " + via, params).fetchall()
+        newest: dict[str, dict] = {}
+        for r in rows:
+            d = self._row(r)
+            read_turn, read_at = d.pop("_read_turn"), d.pop("_read_at") or 0
+            prev = newest.get(d["id"])
+            if prev is not None and prev["_at"] >= read_at:
+                continue
+            if read_turn:
+                d["turn_id"] = read_turn
+            d["_at"] = read_at
+            newest[d["id"]] = d
+        out = sorted(newest.values(), key=lambda d: d["_at"], reverse=True)[:limit]
+        for d in out:
+            d.pop("_at", None)
+        return out
 
     # ------------------------------------------------------------------- edges
     def add_edge(
