@@ -5,7 +5,7 @@ description: >-
   what it was made from (files read, pages fetched, searches run), by which tool call, model
   and agent, with SHA-256 hashes — and a Desktop page draws the graph back to the sources.
   Observed, evidenced and inferred links are labelled, never blended. Observer hooks only (no
-  pre_tool_call); no tools, no middleware, no network.
+  pre_tool_call); no tools, no middleware; network only on an explicit verify --refetch.
 author: Charles Bonetti (ASV Labs)
 license: MIT
 homepage: https://github.com/P0GL0L/hermes-lineage

@@ -243,7 +243,7 @@ def draw_banner(out: Path, graph_img: Image.Image):
         d.text((92, y), label, font=font(17), fill=TEXT2)
         y += 30
     d.text((64, 368), "hermes plugins install lineage", font=ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 18), fill=ACCENT)
-    d.text((64, 540), "A Hermes Agent plugin · hooks only · no network · MIT", font=font(14), fill=TEXT3)
+    d.text((64, 540), "A Hermes Agent plugin · hooks only · network only on request · MIT", font=font(14), fill=TEXT3)
     # graph thumbnail on the right
     thumb = graph_img.copy()
     thumb.thumbnail((620, 420))
