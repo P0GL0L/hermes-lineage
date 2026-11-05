@@ -1,0 +1,12 @@
+{
+  "name": "lineage-desktop-tests",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test --test-force-exit" },
+  "devDependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "@tanstack/react-query": "^5.80.0",
+    "jsdom": "^26.1.0"
+  }
+}

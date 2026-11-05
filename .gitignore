@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+tests-js/node_modules/
+!tests-js/node_modules/@hermes/
+tests-js/.plugin-under-test.js
+*.receipt.json
+.DS_Store
