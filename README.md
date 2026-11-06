@@ -37,34 +37,34 @@ hermes plugins install lineage && hermes plugins enable lineage
   <tr>
     <td width="33%" valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/icon-receipt-dark.svg"><img src="docs/media/icon-receipt-light.svg" width="32" height="32" alt=""></picture>
-      <h4>Receipts that travel</h4>
+      <p><b>Receipts that travel</b></p>
       A signed <code>.receipt.json</code> beside the file: sources, hashes, tool call, model and agent chain. Checkable without the database.
     </td>
     <td width="33%" valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/icon-graph-dark.svg"><img src="docs/media/icon-graph-light.svg" width="32" height="32" alt=""></picture>
-      <h4>A graph you can click</h4>
+      <p><b>A graph you can click</b></p>
       A Hermes Desktop page from sources to tool calls to files to the artifact. Every node opens its hashes, arguments and timing.
     </td>
     <td width="33%" valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/icon-verify-dark.svg"><img src="docs/media/icon-verify-light.svg" width="32" height="32" alt=""></picture>
-      <h4>Stale-report alarm</h4>
+      <p><b>Stale-report alarm</b></p>
       Verify re-hashes the file and every source. When the data under a report moves, it says <b>stale</b> and names the source.
     </td>
   </tr>
   <tr>
     <td width="33%" valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/icon-bases-dark.svg"><img src="docs/media/icon-bases-light.svg" width="32" height="32" alt=""></picture>
-      <h4>Honest edges</h4>
+      <p><b>Honest edges</b></p>
       Observed, evidenced or inferred — labelled, never blended. Anything lineage worked out carries a confidence.
     </td>
     <td width="33%" valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/icon-hook-dark.svg"><img src="docs/media/icon-hook-light.svg" width="32" height="32" alt=""></picture>
-      <h4>Never in the agent's way</h4>
+      <p><b>Never in the agent's way</b></p>
       Ten observer hooks. No tools, no middleware, no <code>pre_tool_call</code>: it cannot block or slow a tool call.
     </td>
     <td width="33%" valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/icon-lock-dark.svg"><img src="docs/media/icon-lock-light.svg" width="32" height="32" alt=""></picture>
-      <h4>Redacted before disk</h4>
+      <p><b>Redacted before disk</b></p>
       Keys, tokens, signed URLs and DSN passwords are masked before anything is stored. Network only when you ask.
     </td>
   </tr>
