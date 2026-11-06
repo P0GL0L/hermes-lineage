@@ -1,99 +1,186 @@
 <p align="center">
-  <img src="docs/banner.png" alt="lineage — where did this file come from?" width="820">
+  <img src="docs/media/banner.png" alt="lineage — Hermes Agent plugin. Where did this file come from? Every file your agent writes gets a receipt: sources, hashes, tool call, model, agent." width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/lineage.yaml"><img alt="In the official Hermes plugin catalog" src="https://img.shields.io/badge/Hermes%20plugin%20catalog-listed-5b8def"></a>
-  <img alt="Hermes ≥ 0.21.5" src="https://img.shields.io/badge/Hermes%20Agent-%E2%89%A5%200.21.5-3a3f4a">
-  <img alt="hooks only" src="https://img.shields.io/badge/surface-hooks%20only%20%C2%B7%20network%20only%20on%20request-3a3f4a">
-  <a href="https://github.com/P0GL0L/hermes-lineage/actions"><img alt="CI" src="https://github.com/P0GL0L/hermes-lineage/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-3a3f4a"></a>
+  <a href="https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/lineage.yaml"><img alt="Listed in the Hermes plugin catalog" src="https://img.shields.io/badge/Hermes%20plugin%20catalog-listed-5ec4ce?style=flat-square"></a>
+  <a href="https://github.com/P0GL0L/hermes-lineage/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/P0GL0L/hermes-lineage?style=flat-square&color=5ec4ce&label=release"></a>
+  <a href="https://github.com/P0GL0L/hermes-lineage/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/P0GL0L/hermes-lineage/ci.yml?branch=main&style=flat-square&label=CI"></a>
+  <img alt="Hermes Agent 0.21.5 or newer" src="https://img.shields.io/badge/Hermes%20Agent-%E2%89%A5%200.21.5-30363d?style=flat-square">
+  <img alt="Hooks only" src="https://img.shields.io/badge/surface-hooks%20only-30363d?style=flat-square">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-30363d?style=flat-square"></a>
 </p>
 
 <h3 align="center">Your agent just handed you a report.<br>Where did that number come from?</h3>
 
 <p align="center">
-<b>lineage</b> gives every file your Hermes agent writes a receipt — the pages it fetched, the files it read, the script it ran, the model that issued the call, the agent that did the work, all with SHA-256 hashes — and draws the graph from the file back to its sources.
+  <b>lineage</b> gives every file your Hermes agent writes a signed receipt — the pages it fetched, the files it read, the script it ran, the model that issued the call, the agent that did the work, all with SHA-256 hashes — and draws the graph from the file back to its sources.
 </p>
 
-```
-hermes plugins install lineage
-hermes plugins enable lineage
+```bash
+hermes plugins install lineage && hermes plugins enable lineage
 ```
 
-<p align="center"><sub>Listed in the <a href="https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/lineage.yaml">official Hermes plugin catalog</a>, reviewed and merged by Nous Research (<a href="https://github.com/NousResearch/hermes-agent/pull/149244">#149244</a>).</sub></p>
+> [!TIP]
+> **In the official Hermes plugin catalog.** Reviewed and merged by Nous Research in [#149244](https://github.com/NousResearch/hermes-agent/pull/149244). Open **Lineage** in the Hermes Desktop sidebar, or type `/lineage` in any chat.
 
----
+<p align="center">
+  <img src="docs/media/hero.gif" width="100%" alt="The Lineage page in Hermes Desktop: the graph from q3-note.md back to its sources, a fetched page with its content hash, chart.svg written by the terminal call, Verify fresh, Verify stale after revenue.csv changed, and the signed receipt">
+</p>
+<p align="center"><sub>Real Hermes Desktop, real run, no mock-ups. The full 85-second demo is <a href="#watch-it">below</a>.</sub></p>
+
+<br>
+
+## What you get
+
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/icon-receipt-dark.svg"><img src="docs/media/icon-receipt-light.svg" width="32" height="32" alt=""></picture>
+      <h4>Receipts that travel</h4>
+      A signed <code>.receipt.json</code> beside the file: sources, hashes, tool call, model and agent chain. Checkable without the database.
+    </td>
+    <td width="33%" valign="top">
+      <picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/icon-graph-dark.svg"><img src="docs/media/icon-graph-light.svg" width="32" height="32" alt=""></picture>
+      <h4>A graph you can click</h4>
+      A Hermes Desktop page from sources to tool calls to files to the artifact. Every node opens its hashes, arguments and timing.
+    </td>
+    <td width="33%" valign="top">
+      <picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/icon-verify-dark.svg"><img src="docs/media/icon-verify-light.svg" width="32" height="32" alt=""></picture>
+      <h4>Stale-report alarm</h4>
+      Verify re-hashes the file and every source. When the data under a report moves, it says <b>stale</b> and names the source.
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top">
+      <picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/icon-bases-dark.svg"><img src="docs/media/icon-bases-light.svg" width="32" height="32" alt=""></picture>
+      <h4>Honest edges</h4>
+      Observed, evidenced or inferred — labelled, never blended. Anything lineage worked out carries a confidence.
+    </td>
+    <td width="33%" valign="top">
+      <picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/icon-hook-dark.svg"><img src="docs/media/icon-hook-light.svg" width="32" height="32" alt=""></picture>
+      <h4>Never in the agent's way</h4>
+      Ten observer hooks. No tools, no middleware, no <code>pre_tool_call</code>: it cannot block or slow a tool call.
+    </td>
+    <td width="33%" valign="top">
+      <picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/icon-lock-dark.svg"><img src="docs/media/icon-lock-light.svg" width="32" height="32" alt=""></picture>
+      <h4>Redacted before disk</h4>
+      Keys, tokens, signed URLs and DSN passwords are masked before anything is stored. Network only when you ask.
+    </td>
+  </tr>
+</table>
+
+<br>
 
 ## Sixty seconds
 
 Ask Hermes for something that touches the world:
 
-> Read `revenue.csv`, fetch https://hermes-agent.nousresearch.com/docs/, then write `q3-note.md` with three bullets that cite the CSV figures and that URL.
+> *Work in ~/lineage-demo2. Read revenue.csv. Fetch https://hermes-agent.nousresearch.com/docs/ and …/plugin-catalog with web_extract. Run python3 make_chart.py. Then write q3-note.md: three bullets on Q3 revenue citing the CSV figures and both URLs, and embed chart.svg.*
 
-Then ask where it came from:
+Then ask where the note came from:
 
-```
-$ hermes lineage show q3-note.md
-q3-note.md  (d41d886bb02e…, 395 bytes)
-  written by write_file at 2026-11-05T03:04:08Z
-  by main (grok-4.7)
-  model call grok-4.7
-  asked: “Read revenue.csv, fetch https://hermes-agent.nousresearch.com/docs/ with web_extract, then write q3-note.md…”
-  from 2 source(s):
-    ◉ evidenced file  revenue.csv   path appears in artifact
-    ◉ evidenced url   https://hermes-agent.nousresearch.com/docs   url appears in artifact
-  ● observed  ◉ evidenced  ○ inferred
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/term-show-dark.svg">
+  <img src="docs/media/term-show-light.svg" width="100%" alt="hermes lineage show q3-note.md: written by write_file, by main (grok-4.7), from 5 sources — chart.svg, revenue.csv and both docs URLs evidenced, make_chart.py inferred">
+</picture>
 
-Write the receipt next to the file, and check it without the database. On the install that issued it, `ok` means the file and the receipt are both genuine; anywhere else, `file_matches_receipt` says the file is the one the receipt describes:
+Check the receipt beside it, then watch the note go stale when the data under it moves:
 
-```
-$ hermes lineage receipt q3-note.md --write
-wrote q3-note.md.receipt.json
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/term-check-dark.svg">
+  <img src="docs/media/term-check-light.svg" width="100%" alt="hermes lineage check: ok true, signature valid. After revenue.csv changes, hermes lineage verify: verdict stale, revenue.csv changed">
+</picture>
 
-$ hermes lineage check q3-note.md.receipt.json
-{ "ok": true, "file_matches_receipt": true, "artifact_sha256_matches": true, "receipt_sha256_matches": true, "signature": "valid", "sources": 2 }
-```
+<details>
+<summary><b>Copy the commands</b></summary>
 
-Change the CSV under it, and the note goes stale:
-
-```
-$ echo 'Q4,21' >> revenue.csv && hermes lineage verify q3-note.md
-q3-note.md: unchanged  → verdict: stale
-  changed     evidenced  revenue.csv
-  unchecked   evidenced  https://hermes-agent.nousresearch.com/docs
+```bash
+hermes lineage show q3-note.md                 # where it came from, in plain text (--json for the receipt)
+hermes lineage receipt q3-note.md --write      # q3-note.md.receipt.json beside the file
+hermes lineage check q3-note.md.receipt.json   # file + receipt, no database needed
+hermes lineage verify q3-note.md               # fresh / stale / modified / missing
 ```
 
-That transcript is from a real run on Hermes Agent 0.22.7, not a mock-up. In chat, the same things are `/lineage`, `/lineage q3-note.md`, `/lineage receipt …`, `/lineage verify …`.
+</details>
 
----
+Every line above is real output from Hermes Agent 0.22.7 on macOS running lineage 0.1.5. In chat, the same things are `/lineage`, `/lineage q3-note.md`, `/lineage receipt …` and `/lineage verify …`.
+
+<br>
 
 ## The graph
 
-<p align="center"><img src="docs/graph.png" alt="Lineage Desktop page: sources → tool calls → intermediate → artifact" width="900"></p>
+<p align="center">
+  <img src="docs/media/screenshot-lineage.png" width="100%" alt="The Lineage page in Hermes Desktop: artifact list, the graph from sources through tool calls and intermediate files to q3-note.md, and the inspector showing a stale verdict">
+</p>
 
-Open **Lineage** in the Hermes Desktop sidebar (or click the `N artifacts` chip in the status bar). Sources on the left, the tool calls that read and wrote them in the middle — each annotated with the model call that issued it — intermediate files next, and the artifact you asked about on the right. Click anything:
+Open **Lineage** in the Hermes Desktop sidebar, or click the `N artifacts` chip in the status bar. Sources sit on the left. The tool calls that read and wrote them are in the middle, each tagged with the model call that issued it. Intermediate files come next, and the artifact you asked about is on the right. Click anything:
 
-- a **URL** shows the content hash at fetch time and which tool read it
-- a **tool call** shows its redacted, bounded arguments and what it wrote
-- the **artifact** shows its hash and versions, with **Verify**, **Verify + refetch URLs**, **Write receipt**, **Copy Mermaid** and **Reveal** one click away
+- **a page** shows its URL, the content hash at fetch time, and the search that found it
+- **a tool call** shows its redacted, bounded arguments, its duration, and what it wrote
+- **the artifact** shows its hash and versions, with **Verify**, **Verify + refetch URLs**, **Write receipt**, **Copy Mermaid** and **Reveal** one click away
 
-The page refreshes while the agent works.
+The graph is drawn as of the moment each source fed the artifact. A file rewritten later still appears as it was then. The page refreshes while the agent works.
+
+<br>
 
 ## Three kinds of link, never blended
 
-The honest part. Most provenance tooling draws one arrow and calls it "derived from". lineage keeps three, labels each, and writes the label into the receipt so a reader can discount the weak ones.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/bases-dark.svg">
+  <img src="docs/media/bases-light.svg" width="100%" alt="observed: Hermes reported it. evidenced: the file's own bytes name it. inferred: worked out, with a confidence.">
+</picture>
 
-| | basis | what it means | drawn as |
-|---|---|---|---|
-| ● | **observed** | Hermes reported it: `write_file` wrote this path; this tool call came out of that model request; this child agent was spawned by that turn. | thick accent line |
-| ◉ | **evidenced** | The artifact's own bytes name the source — a URL that was fetched this session, or the path of a file that was read. | solid line |
-| ○ | **inferred** | lineage worked it out, and says from what: a file that changed in the working tree during a shell command (0.8), a file with the same bytes as a moved or copied artifact (0.9), a file or URL named in a command (0.5), a source read earlier in the same turn (0.6) or a recent turn (0.35). A dashed edge says *likely*, not *certain*. | dashed line |
+Most provenance tooling draws one arrow and calls it "derived from". lineage keeps three kinds of link, labels each one, and writes the label into the receipt, so a reader can discount the weak ones.
+
+<details>
+<summary><b>Where each kind comes from</b></summary>
+
+| basis | confidence | how it arises |
+|---|---|---|
+| **observed** | 1.0 | Hermes reported it: `write_file`/`patch` wrote this path, `read_file`/`web_extract` read that one, this tool call came out of that model request, this subagent was spawned by that turn |
+| **evidenced** | 0.9 | the artifact's own bytes name the source: a fetched URL or a read file's path appears in the text |
+| **inferred** | 0.8 | a file changed in the working tree during a `terminal` / `execute_code` call |
+| | 0.9 | same bytes as an artifact that was moved or copied |
+| | 0.6 / 0.35 | read earlier in this turn / in a recent turn |
+| | 0.5 | a file or URL named in a shell command |
+
+</details>
+
+<br>
+
+## Verify, and staleness
+
+| verdict | meaning |
+|:--|:--|
+| 🟢 **fresh** | nothing moved |
+| 🟠 **stale** | a source changed, or is gone, since the artifact was made |
+| 🔴 **modified** | the artifact itself changed after it was written |
+| ⚫ **missing** | the artifact is gone |
+
+```bash
+hermes lineage verify q3-note.md              # the file and its file sources, against the hashes recorded when it was built
+hermes lineage verify q3-note.md --refetch    # also re-fetch URL sources: public hosts only, every redirect hop checked
+```
+
+URL change detection is honest about its limits. The hash recorded at fetch time is of Hermes's *extracted* text, which a raw re-fetch can't reproduce. So the first `--refetch` sets a baseline fingerprint, and later runs report *unchanged since* or *changed since* that date.
+
+<br>
+
+## Watch it
+
+https://github.com/user-attachments/assets/15fc2192-3479-41b8-a82b-bbf3de01b011
+
+<sub>85 seconds, all real Hermes Desktop screens: the agent works, the Lineage page, Verify fresh, two later sessions edit the CSV, Verify stale, the receipt, Copy Mermaid, and `check` / `verify` from the terminal. Also at <a href="docs/media/lineage-demo.mp4"><code>docs/media/lineage-demo.mp4</code></a>.</sub>
+
+<br>
 
 ## The receipt
 
-`<file>.receipt.json` sits beside the file, on request or automatically with `sidecar: true`. Trimmed from the run above:
+`<file>.receipt.json` sits beside the file. It's written on request, or after every turn with `sidecar: true`. It is signed with a random per-install key: the install that issued a receipt can prove it did, while anyone else can check that the file still matches. It is not a third-party attestation, and the receipt says so.
+
+<details>
+<summary><b>A receipt, trimmed (from a live run)</b></summary>
 
 ```json
 {
@@ -114,25 +201,11 @@ The honest part. Most provenance tooling draws one arrow and calls it "derived f
 }
 ```
 
-Notice `web_extract … "status": "error"` followed by `terminal`: the fetch tool failed, the model fetched the page from the shell instead, and lineage still caught the URL as a source — from the command text. The receipt records what happened, not what was supposed to happen.
+Notice `web_extract … "status": "error"` followed by `terminal`. The fetch tool failed, the model fetched the page from the shell instead, and lineage still caught the URL as a source, from the command text. The receipt records what happened, not what was supposed to happen.
 
-The signature is from a per-install random key. It lets *this install* recognise receipts it issued; it is not a third-party attestation, and the receipt says so.
+</details>
 
-## Verify, and staleness
-
-```
-hermes lineage verify q3-note.md               # the file and its file sources against recorded hashes
-hermes lineage verify q3-note.md --refetch     # also re-fetch URL sources — the only network lineage ever does; public hosts only, every redirect hop checked
-```
-
-| verdict | meaning |
-|---|---|
-| **fresh** | nothing moved |
-| **stale** | a source changed (or is gone) since the artifact was made |
-| **modified** | the artifact itself changed |
-| **missing** | the artifact is gone |
-
-The Desktop list marks every artifact with its last verdict. URL change detection is honest about its limits: the hash recorded at fetch time is of the *extracted* text, which a raw re-fetch cannot reproduce, so the first `--refetch` sets a baseline fingerprint and later runs report *unchanged since* / *changed since* that date.
+<br>
 
 ## Everything you can ask
 
@@ -142,24 +215,48 @@ The Desktop list marks every artifact with its last verdict. URL change detectio
 | `/lineage <file>` | `hermes lineage show <file>` | the plain-text account above; `--json` for the full receipt |
 | `/lineage receipt <file>` | `hermes lineage receipt <file> --write` | `<file>.receipt.json` beside the file |
 | `/lineage verify <file>` | `hermes lineage verify <file> [--refetch]` | fresh / stale / modified / missing |
-| | `hermes lineage check <file>.receipt.json` | verify a receipt with no database |
+| | `hermes lineage check <file>.receipt.json` | check a receipt without the database |
 | `/lineage mermaid <file>` | `hermes lineage graph <file> [--format mermaid\|dot\|json]` | the graph, ready for a diagram tool |
 | `/lineage stats` | `hermes lineage stats` · `sessions` · `prune --days 90 --yes` | what the store holds; housekeeping |
 
+<br>
+
+## How it works
+
+```mermaid
+flowchart LR
+    H["Hermes agent<br/>tools · models · subagents"] -- "10 observer hooks" --> S[("lineage store<br/>SQLite, per profile")]
+    S --> D["Desktop page<br/>the graph"]
+    S --> R["q3-note.md.receipt.json<br/>beside the file"]
+    S --> C["/lineage · hermes lineage"]
+    R --> V{"check · verify"}
+    C --> V
+```
+
+- **Writes are attributed** from `write_file` and `patch`, including V4A multi-file patches with moves and deletes. Shell commands get one bounded walk of the working tree afterwards, and the files they changed are labelled *inferred*.
+- **Sources** come from `read_file`, `web_search`, `web_extract`, `skill_view`, and paths or URLs named in commands. When an artifact lands, its text is scanned for them.
+- **Every tool call** is linked to the model request that issued it (`api_request_id`). Subagents carry the agent chain.
+- **No `pre_tool_call`.** Hermes treats that hook as fail-closed, and an observer must never be able to block the agent. Every callback swallows its own errors, and each tool call's writes go into one SQLite transaction.
+
+The full account, with every node kind, edge rule, bound and redaction, is in **[docs/how-it-works.md](docs/how-it-works.md)**.
+
+<br>
+
 ## What it will not do
 
-Said plainly, because the receipts are only worth something if their limits are.
+> [!IMPORTANT]
+> The receipts are only worth something if their limits are stated plainly.
+> - lineage sees what Hermes's hooks report. A file written by a background process that outlives the tool call, or by anything outside Hermes, is not attributed.
+> - *Inferred* means inferred. The `basis` and `confidence` fields exist so you can ignore the dashed lines.
+> - Which files a shell command wrote is worked out from the working tree. A file another process changes during the same window would be attributed too. Trees over 6,000 files, or slower than half a second to walk, are skipped.
+> - URL hashes are of Hermes's extracted text; a raw re-fetch sets its own baseline.
+> - The signature proves which install issued a receipt, nothing more.
+> - Under `plugins.isolation: host`, the Desktop page and `/lineage` work, but `hermes lineage …` is not wired, because Hermes doesn't route CLI subcommands into the host.
 
-- lineage sees what Hermes's hooks report. A file written by a background process that outlives the tool call, or by anything outside Hermes, is not attributed.
-- *Inferred* means inferred. The `basis` and `confidence` fields exist so you can ignore the dashed lines.
-- Working trees over `snapshot_max_files` (6000) or slower than half a second to walk are not scanned after terminal calls; `write_file`/`patch` attribution still works there. Which files a shell command wrote is inferred from the working tree, and labelled so: a file another process modifies during the call's window would be attributed to that call too.
-- URL hashes are of Hermes's extracted text; raw re-fetches establish their own baseline.
-- The signature proves which install issued a receipt, nothing more.
-- Under `plugins.isolation: host`, the Desktop backend and `/lineage` still work but `hermes lineage …` is not wired (Hermes does not route CLI subcommands into the host).
+<details>
+<summary><b>Configuration</b></summary>
 
-## Configuration
-
-Defaults are sensible; nothing is required. `~/.hermes/config.yaml`:
+Nothing is required. Every default is sensible. In `~/.hermes/config.yaml`:
 
 ```yaml
 plugins:
@@ -175,37 +272,40 @@ plugins:
         session_window_turns: 3    # earlier turns that count as inferred sources (0 disables)
 ```
 
-## How it works, briefly
+</details>
 
-Ten observer hooks → a SQLite graph at `<HERMES_HOME>/plugin-data/lineage/lineage.db` → receipts and the page. `write_file` and `patch` (including V4A multi-file patches) are observed directly; `terminal` and `execute_code` get one bounded walk of the working tree after the call, attributing (as *inferred*) every file that changed inside the call's window, even when the command exits non-zero; `read_file`, `web_search`, `web_extract`, `skill_view`, and paths or URLs named in commands and arguments become sources; when an artifact lands, its text is scanned for the session's sources (evidenced), then the turn's reads (inferred 0.6) and the last three turns' (0.35). `api_request_id` on each tool call links it to the model request that issued it; `subagent_start/stop` carry the agent chain.
-
-Everything stored is bounded and redacted before it reaches disk — vendor key prefixes, `token=`, `Bearer …`, PEM blocks, `FOO_KEY=…` in shell text, `user:pass@` and credential-shaped query values in URLs. A blocked or failed tool call records nothing.
-
-lineage registers **no `pre_tool_call`**. Hermes treats that hook as fail-closed — a slow callback blocks the agent's tool call — and an observer must never be able to do that. Every callback also swallows its own errors: a provenance recorder that can interrupt the agent is worse than no recorder.
-
-The full account — every node kind, edge rule, bound and redaction — is in **[docs/how-it-works.md](docs/how-it-works.md)**.
-
-## Disclosure
+<details>
+<summary><b>Disclosure</b></summary>
 
 Hooks only (`post_tool_call`, `pre_llm_call`, `post_llm_call`, `post_api_request`, `api_request_error`, `post_auxiliary_call`, `subagent_start`, `subagent_stop`, `on_session_start`, `on_session_end`); no tools, no middleware, no LLM calls, no credentials. Runs no commands. Hashes files the agent read or wrote, and files named in a terminal command (up to 32 MB; credential files such as `~/.ssh/*`, `.env*` and `*.pem` are never opened on a guess), scans the text of files it wrote for sources (up to 512 KB) and stats the working tree once after `terminal`/`execute_code` calls (bounded by file count and time). Receipts and verify apply only to files the agent produced, never to files it only read. Writes only under `<HERMES_HOME>/plugin-data/lineage/` (SQLite store, `install.key`) and, on request or with `sidecar: true`, `<file>.receipt.json` beside artifacts. Stores redacted, bounded previews of prompts, tool arguments and results (`store_previews: false` turns previews off). Network only when you run `verify --refetch` or press *Verify + refetch URLs*, and then only `GET` to the recorded source URLs on public hosts (loopback, private and link-local addresses are refused, through Hermes's own `is_safe_url` when available; redirects are followed only to hosts that pass the same check, at most 5 hops). No telemetry.
 
-## Validated
+</details>
 
-- **Catalog review.** Nous Research reviewed the entry and its disclosure and merged it into the official catalog ([#149244](https://github.com/NousResearch/hermes-agent/pull/149244)). The review's wording surfaced that `verify --refetch` followed redirects with only the first URL checked; 0.1.5 checks every hop.
-- **On a real install.** `hermes plugins validate` on Hermes Agent v0.22.7 (macOS): every check passes — manifest, `requires_hermes`, config schema, loadable, capability probe, declared tools/hooks/middleware, built-in collisions, security scan *safe*, no core override, desktop surface inside the SDK. The transcript in *Sixty seconds* is from a live task on that install, and the Desktop page was driven end to end there while recording the demo — which is how the 0.1.4 staleness bug was found.
+<details>
+<summary><b>How it was validated</b></summary>
+
+- **Catalog review.** Nous Research reviewed the entry and its disclosure and merged it into the official catalog ([#149244](https://github.com/NousResearch/hermes-agent/pull/149244)).
+- **Independent review, four rounds.** After the merge, a separate reviewer attacked the code, and then each round of fixes, finding 16, then 10, then 5, then 4 problems. Every one is fixed in 0.1.5, and each has a regression test that fails on the code before it ([CHANGELOG](CHANGELOG.md)).
+- **On a real install.** `hermes plugins validate` on Hermes Agent v0.22.7 (macOS) passes every check, including the security scan (*safe*). The transcripts, screenshots and video on this page are from that install.
 - **In CI, on every push.** Python 3.11–3.13, the Desktop half under jsdom, and the catalog's own admission check (`hermes plugins validate`) against current Hermes main.
-- **Reviewed.** An independent review against the Hermes source found eight defects before the first release (including the `pre_tool_call` risk and secret-bearing URL ids); all are fixed and covered by tests. Every bug found since ships with a test that fails on the old code.
 
-## Development
+</details>
 
-```
-python -m pytest -q tests                 # 17 tests: tracker, receipts, redaction, CLI, slash command, API, review regressions
-cd tests-js && npm install && npm test    # Desktop half under jsdom, against fixtures generated by the Python core
+<details>
+<summary><b>Development</b></summary>
+
+```bash
+python -m pytest -q tests                 # 61 tests: tracker, receipts, redaction, CLI, slash command, API, review regressions
+cd tests-js && npm install && npm test    # the Desktop half under jsdom, against fixtures generated by the Python core
 hermes plugins validate .                 # the catalog admission checks
 ```
 
-Develop the Desktop half live: `ln -s $(pwd) ~/.hermes/plugins/lineage`, enable it, and every save of `desktop/plugin.js` hot-reloads. The graph picture above is rendered from the same test fixture by `docs/render.py`.
+To develop the Desktop half live, run `ln -s $(pwd) ~/.hermes/plugins/lineage` and enable the plugin; every save of `desktop/plugin.js` then hot-reloads. Note that a Hermes profile with its own `plugins/lineage` loads that copy instead.
 
-## License
+</details>
 
-MIT — Charles Bonetti / [ASV Labs](https://asv-labs.com). Built for the Hermes Agent Plugin Hackathon, November 2026.
+<br>
+
+<p align="center">
+  <sub>MIT · Charles Bonetti / <a href="https://asv-labs.com">ASV Labs</a> · Built for the Hermes Agent Plugin Hackathon, November 2026</sub>
+</p>

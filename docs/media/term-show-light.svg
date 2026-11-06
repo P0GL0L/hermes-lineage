@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="954" height="408" viewBox="0 0 954 408" role="img" aria-label="hermes lineage show">
+<title>hermes lineage show</title>
+<rect x="0.5" y="0.5" width="953" height="407" rx="12" fill="#F6F8FA" stroke="#D0D7DE"/>
+<path d="M12.5 .5h929a12 12 0 0 1 12 12v27.5h-953v-27.5a12 12 0 0 1 12-12z" fill="#EAEEF2"/>
+<line x1="0.5" y1="40" x2="953.5" y2="40" stroke="#D0D7DE"/>
+<circle cx="22" cy="20" r="6" fill="#FF5F57"/><circle cx="42" cy="20" r="6" fill="#FEBC2E"/><circle cx="62" cy="20" r="6" fill="#28C840"/>
+<text x="477.0" y="25" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" fill="#59636E">hermes lineage show</text>
+<g font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="15">
+<text x="26" y="77" xml:space="preserve"><tspan fill="#8C959F">$ </tspan><tspan fill="#1F2328" font-weight="600">hermes lineage show q3-note.md</tspan></text>
+<text x="26" y="99" xml:space="preserve"><tspan fill="#1F2328">q3-note.md  (e5b5b4d9feae…, 403 bytes)</tspan></text>
+<text x="26" y="121" xml:space="preserve"><tspan fill="#1F2328">  written by write_file at 2026-11-05T13:52:23.831889Z</tspan></text>
+<text x="26" y="143" xml:space="preserve"><tspan fill="#1F2328">  by main (grok-4.7)</tspan></text>
+<text x="26" y="165" xml:space="preserve"><tspan fill="#1F2328">  model call grok-4.7 via xai-oauth</tspan></text>
+<text x="26" y="187" xml:space="preserve"><tspan fill="#1F2328">  asked: “Work in ~/lineage-demo2. Read revenue.csv. Fetch</tspan></text>
+<text x="26" y="209" xml:space="preserve"><tspan fill="#1F2328">      </tspan><tspan fill="#0A7C86">https://hermes-agent.nousresearch.com/docs/</tspan><tspan fill="#1F2328"> and </tspan><tspan fill="#0A7C86">https://hermes-agent.no</tspan><tspan fill="#1F2328">”</tspan></text>
+<text x="26" y="231" xml:space="preserve"><tspan fill="#1F2328">  from 5 source(s):</tspan></text>
+<text x="26" y="253" xml:space="preserve"><tspan fill="#1F2328">    ◉ evidenced file  chart.svg  path appears in artifact</tspan></text>
+<text x="26" y="275" xml:space="preserve"><tspan fill="#1F2328">    ◉ evidenced file  revenue.csv  path appears in artifact</tspan></text>
+<text x="26" y="297" xml:space="preserve"><tspan fill="#1F2328">    ◉ evidenced url   </tspan><tspan fill="#0A7C86">https://hermes-agent.nousresearch.com/docs</tspan><tspan fill="#1F2328">  url appears in artifact</tspan></text>
+<text x="26" y="319" xml:space="preserve"><tspan fill="#1F2328">    ◉ evidenced url   </tspan><tspan fill="#0A7C86">https://hermes-agent.nousresearch.com/docs/user-guide/features/plugin-catalog</tspan></text>
+<text x="26" y="341" xml:space="preserve"><tspan fill="#1F2328">          url appears in artifact</tspan></text>
+<text x="26" y="363" xml:space="preserve"><tspan fill="#1F2328">    </tspan><tspan fill="#59636E">○</tspan><tspan fill="#1F2328"> </tspan><tspan fill="#59636E">inferred</tspan><tspan fill="#1F2328">  file  make_chart.py  read earlier in this turn</tspan></text>
+<text x="26" y="385" xml:space="preserve"><tspan fill="#1F2328">  </tspan><tspan fill="#0A7C86">●</tspan><tspan fill="#1F2328"> </tspan><tspan fill="#0A7C86">observed</tspan><tspan fill="#1F2328">  ◉ evidenced  </tspan><tspan fill="#59636E">○</tspan><tspan fill="#1F2328"> </tspan><tspan fill="#59636E">inferred</tspan></text>
+</g></svg>

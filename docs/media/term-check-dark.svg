@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="954" height="540" viewBox="0 0 954 540" role="img" aria-label="hermes lineage check · verify">
+<title>hermes lineage check · verify</title>
+<rect x="0.5" y="0.5" width="953" height="539" rx="12" fill="#0E151B" stroke="#2A3640"/>
+<path d="M12.5 .5h929a12 12 0 0 1 12 12v27.5h-953v-27.5a12 12 0 0 1 12-12z" fill="#141D24"/>
+<line x1="0.5" y1="40" x2="953.5" y2="40" stroke="#2A3640"/>
+<circle cx="22" cy="20" r="6" fill="#FF5F57"/><circle cx="42" cy="20" r="6" fill="#FEBC2E"/><circle cx="62" cy="20" r="6" fill="#28C840"/>
+<text x="477.0" y="25" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" fill="#8B98A5">hermes lineage check · verify</text>
+<g font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="15">
+<text x="26" y="77" xml:space="preserve"><tspan fill="#5B6873">$ </tspan><tspan fill="#E6EDF3" font-weight="600">hermes lineage check q3-note.md.receipt.json</tspan></text>
+<text x="26" y="99" xml:space="preserve"><tspan fill="#E6EDF3">{</tspan></text>
+<text x="26" y="121" xml:space="preserve"><tspan fill="#E6EDF3">  &quot;ok&quot;: </tspan><tspan fill="#7CC88A">true</tspan><tspan fill="#E6EDF3">,</tspan></text>
+<text x="26" y="143" xml:space="preserve"><tspan fill="#E6EDF3">  &quot;file_matches_receipt&quot;: </tspan><tspan fill="#7CC88A">true</tspan><tspan fill="#E6EDF3">,</tspan></text>
+<text x="26" y="165" xml:space="preserve"><tspan fill="#E6EDF3">  &quot;artifact_sha256_matches&quot;: </tspan><tspan fill="#7CC88A">true</tspan><tspan fill="#E6EDF3">,</tspan></text>
+<text x="26" y="187" xml:space="preserve"><tspan fill="#E6EDF3">  &quot;receipt_sha256_matches&quot;: </tspan><tspan fill="#7CC88A">true</tspan><tspan fill="#E6EDF3">,</tspan></text>
+<text x="26" y="209" xml:space="preserve"><tspan fill="#E6EDF3">  &quot;signature&quot;: &quot;</tspan><tspan fill="#7CC88A">valid</tspan><tspan fill="#E6EDF3">&quot;,</tspan></text>
+<text x="26" y="231" xml:space="preserve"><tspan fill="#E6EDF3">  &quot;sources&quot;: 5,</tspan></text>
+<text x="26" y="253" xml:space="preserve"><tspan fill="#E6EDF3">  &quot;schema&quot;: &quot;lineage.receipt.v1&quot;,</tspan></text>
+<text x="26" y="275" xml:space="preserve"><tspan fill="#E6EDF3">  …</tspan></text>
+<text x="26" y="297" xml:space="preserve"><tspan fill="#E6EDF3">}</tspan></text>
+<text x="26" y="319" xml:space="preserve"><tspan fill="#5B6873" font-style="italic"># later, two sessions append Q4 rows to revenue.csv</tspan></text>
+<text x="26" y="341" xml:space="preserve"><tspan fill="#5B6873">$ </tspan><tspan fill="#E6EDF3" font-weight="600">hermes lineage verify q3-note.md</tspan></text>
+<text x="26" y="363" xml:space="preserve"><tspan fill="#E6EDF3">q3-note.md: </tspan><tspan fill="#7CC88A">unchanged</tspan><tspan fill="#E6EDF3">  </tspan><tspan fill="#5B6873">→</tspan><tspan fill="#E6EDF3"> verdict: </tspan><tspan fill="#F0A35E">stale</tspan></text>
+<text x="26" y="385" xml:space="preserve"><tspan fill="#E6EDF3">  receipt: …/q3-note.md.receipt.json  signature </tspan><tspan fill="#7CC88A">valid</tspan><tspan fill="#E6EDF3">  </tspan><tspan fill="#7CC88A">hash ok</tspan></text>
+<text x="26" y="407" xml:space="preserve"><tspan fill="#E6EDF3">  </tspan><tspan fill="#8B98A5">unchecked</tspan><tspan fill="#E6EDF3">   evidenced  </tspan><tspan fill="#5EC4CE">https://hermes-agent.nousresearch.com/docs</tspan></text>
+<text x="26" y="429" xml:space="preserve"><tspan fill="#E6EDF3">  </tspan><tspan fill="#8B98A5">unchecked</tspan><tspan fill="#E6EDF3">   evidenced  </tspan><tspan fill="#5EC4CE">https://hermes-agent.nousresearch.com/docs/user-guide/features/plugin-</tspan></text>
+<text x="26" y="451" xml:space="preserve"><tspan fill="#E6EDF3">  </tspan><tspan fill="#7CC88A">unchanged</tspan><tspan fill="#E6EDF3">   evidenced  chart.svg</tspan></text>
+<text x="26" y="473" xml:space="preserve"><tspan fill="#E6EDF3">  </tspan><tspan fill="#F0A35E">changed</tspan><tspan fill="#E6EDF3">     evidenced  revenue.csv</tspan></text>
+<text x="26" y="495" xml:space="preserve"><tspan fill="#E6EDF3">  </tspan><tspan fill="#7CC88A">unchanged</tspan><tspan fill="#E6EDF3">   </tspan><tspan fill="#8B98A5">inferred</tspan><tspan fill="#E6EDF3">   make_chart.py</tspan></text>
+<text x="26" y="517" xml:space="preserve"><tspan fill="#E6EDF3">  URLs are </tspan><tspan fill="#8B98A5">unchecked</tspan><tspan fill="#E6EDF3">; `hermes lineage verify &lt;file&gt; --refetch` reaches the network to check them.</tspan></text>
+</g></svg>
