@@ -212,16 +212,17 @@ Notice `web_extract … "status": "error"` followed by `terminal`. The fetch too
 
 ## Everything you can ask
 
-| in chat | `hermes lineage …` | what you get |
+| in chat | <code>hermes&nbsp;lineage&nbsp;…</code> | what you get |
 |---|---|---|
-| `/lineage` | `list` | artifacts made in this session, with source counts and verdicts |
-| `/lineage <file>` | `show <file>` | the plain-text account above; add `--json` for the full receipt |
-| `/lineage receipt <file>` | `receipt <file>` | `<file>.receipt.json` beside the file; the CLI prints it unless you add `--write` |
-| `/lineage verify <file>` | `verify <file>` | fresh, stale, modified or missing; add `--refetch` to check URLs too |
-| | `check <receipt>` | check a receipt without the database |
-| `/lineage mermaid <file>` | `graph <file>` | the graph; `--format mermaid`, `dot` or `json` |
-| `/lineage stats` | `stats` | what the store holds; `sessions` lists them |
-| | `prune` | housekeeping: drops sessions older than `--days` (default 90); a dry run until you add `--yes` |
+| <code>/lineage</code> | <code>list</code> | artifacts made in this session, with source counts and verdicts |
+| <code>/lineage&nbsp;&lt;file&gt;</code> | <code>show&nbsp;&lt;file&gt;</code> | the plain-text account above; add `--json` for the full receipt |
+| <code>/lineage&nbsp;receipt&nbsp;&lt;file&gt;</code> | <code>receipt&nbsp;&lt;file&gt;</code> | `<file>.receipt.json` beside the file; the CLI prints it unless you add `--write` |
+| <code>/lineage&nbsp;verify&nbsp;&lt;file&gt;</code> | <code>verify&nbsp;&lt;file&gt;</code> | fresh, stale, modified or missing; add `--refetch` to check URLs too |
+| | <code>check&nbsp;&lt;receipt&gt;</code> | check a receipt without the database |
+| <code>/lineage&nbsp;mermaid&nbsp;&lt;file&gt;</code> | <code>graph&nbsp;&lt;file&gt;</code> | the graph; `--format mermaid`, `dot` or `json` |
+| <code>/lineage&nbsp;stats</code> | <code>stats</code> | what the store holds; `sessions` lists them |
+| | <code>prune</code> | housekeeping: drops sessions older than `--days` (default 90); a dry run until you add `--yes` |
+
 
 <br>
 
