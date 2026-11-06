@@ -212,16 +212,16 @@ Notice `web_extract … "status": "error"` followed by `terminal`. The fetch too
 
 ## Everything you can ask
 
-| in chat | on the command line | what you get |
+| in chat | `hermes lineage …` | what you get |
 |---|---|---|
-| `/lineage` | `hermes lineage list` | artifacts made in this session, with source counts and verdicts |
-| `/lineage <file>` | `hermes lineage show <file>` | the plain-text account above; add `--json` for the full receipt |
-| `/lineage receipt <file>` | `hermes lineage receipt <file>` | `<file>.receipt.json` beside the file; the CLI prints it unless you add `--write` |
-| `/lineage verify <file>` | `hermes lineage verify <file>` | fresh, stale, modified or missing; add `--refetch` to check URLs too |
-| | `hermes lineage check <receipt>` | check a receipt without the database |
-| `/lineage mermaid <file>` | `hermes lineage graph <file>` | the graph; `--format mermaid`, `dot` or `json` |
-| `/lineage stats` | `hermes lineage stats` | what the store holds; `sessions` lists them |
-| | `hermes lineage prune` | housekeeping: drops sessions older than `--days` (default 90); a dry run until you add `--yes` |
+| `/lineage` | `list` | artifacts made in this session, with source counts and verdicts |
+| `/lineage <file>` | `show <file>` | the plain-text account above; add `--json` for the full receipt |
+| `/lineage receipt <file>` | `receipt <file>` | `<file>.receipt.json` beside the file; the CLI prints it unless you add `--write` |
+| `/lineage verify <file>` | `verify <file>` | fresh, stale, modified or missing; add `--refetch` to check URLs too |
+| | `check <receipt>` | check a receipt without the database |
+| `/lineage mermaid <file>` | `graph <file>` | the graph; `--format mermaid`, `dot` or `json` |
+| `/lineage stats` | `stats` | what the store holds; `sessions` lists them |
+| | `prune` | housekeeping: drops sessions older than `--days` (default 90); a dry run until you add `--yes` |
 
 <br>
 
