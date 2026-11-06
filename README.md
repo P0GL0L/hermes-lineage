@@ -159,8 +159,11 @@ Most provenance tooling draws one arrow and calls it "derived from". lineage kee
 | ⚫ **missing** | the artifact is gone |
 
 ```bash
-hermes lineage verify q3-note.md              # the file and its file sources, against the hashes recorded when it was built
-hermes lineage verify q3-note.md --refetch    # also re-fetch URL sources: public hosts only, every redirect hop checked
+# the file and its file sources, against the hashes recorded when it was built
+hermes lineage verify q3-note.md
+
+# also re-fetch URL sources: public hosts only, every redirect hop checked
+hermes lineage verify q3-note.md --refetch
 ```
 
 URL change detection is honest about its limits. The hash recorded at fetch time is of Hermes's *extracted* text, which a raw re-fetch can't reproduce. So the first `--refetch` sets a baseline fingerprint, and later runs report *unchanged since* or *changed since* that date.
@@ -212,12 +215,13 @@ Notice `web_extract … "status": "error"` followed by `terminal`. The fetch too
 | in chat | on the command line | what you get |
 |---|---|---|
 | `/lineage` | `hermes lineage list` | artifacts made in this session, with source counts and verdicts |
-| `/lineage <file>` | `hermes lineage show <file>` | the plain-text account above; `--json` for the full receipt |
-| `/lineage receipt <file>` | `hermes lineage receipt <file> --write` | `<file>.receipt.json` beside the file |
-| `/lineage verify <file>` | `hermes lineage verify <file> [--refetch]` | fresh / stale / modified / missing |
-| | `hermes lineage check <file>.receipt.json` | check a receipt without the database |
-| `/lineage mermaid <file>` | `hermes lineage graph <file> [--format mermaid\|dot\|json]` | the graph, ready for a diagram tool |
-| `/lineage stats` | `hermes lineage stats` · `sessions` · `prune --days 90 --yes` | what the store holds; housekeeping |
+| `/lineage <file>` | `hermes lineage show <file>` | the plain-text account above; add `--json` for the full receipt |
+| `/lineage receipt <file>` | `hermes lineage receipt <file>` | `<file>.receipt.json` beside the file; the CLI prints it unless you add `--write` |
+| `/lineage verify <file>` | `hermes lineage verify <file>` | fresh, stale, modified or missing; add `--refetch` to check URLs too |
+| | `hermes lineage check <receipt>` | check a receipt without the database |
+| `/lineage mermaid <file>` | `hermes lineage graph <file>` | the graph; `--format mermaid`, `dot` or `json` |
+| `/lineage stats` | `hermes lineage stats` | what the store holds; `sessions` lists them |
+| | `hermes lineage prune` | housekeeping: drops sessions older than `--days` (default 90); a dry run until you add `--yes` |
 
 <br>
 
@@ -227,9 +231,9 @@ Notice `web_extract … "status": "error"` followed by `terminal`. The fetch too
 flowchart LR
     H["Hermes agent<br/>tools · models · subagents"] -- "10 observer hooks" --> S[("lineage store<br/>SQLite, per profile")]
     S --> D["Desktop page<br/>the graph"]
-    S --> R["q3-note.md.receipt.json<br/>beside the file"]
+    S --> R["file.receipt.json<br/>beside the file"]
     S --> C["/lineage · hermes lineage"]
-    R --> V{"check · verify"}
+    R --> V(["check · verify"])
     C --> V
 ```
 
